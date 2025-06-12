@@ -1,0 +1,8 @@
+com/digiunion/model/URL.class
+com/digiunion/model/URLNotFoundRenderer.class
+com/digiunion/App.class
+META-INF/services/io.jstach.jstachio.spi.JStachioExtension
+com/digiunion/model/URLRenderer.class
+META-INF/services/io.jstach.jstachio.spi.TemplateProvider
+com/digiunion/Main.class
+com/digiunion/model/URLNotFound.class

@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html>
+<header>
+<title>Kivarino</title>
+</header>
+<body>
+<button onclick="location.href='{{url}}'" class="auth">Authorize</button>
+</body>
+<style>
+	:root {
+		--text: #00e701;
+		--background: #0b0e0f; 
+		--border: #474f54
+	}
+	body {
+		background-color: var(--background);
+	}
+	.auth {
+		font-size: 4.0rem;
+		position: absolute;
+		top: 50%;
+		left: 50%;
+		transform: translate(-50%, -50%);
+    	font-family: 'Inter', sans-serif;		
+		border-radius: unset;
+		background-color: var(--background);
+		border-color: var(--border);
+		border-width: 0.15rem 0.15rem 0.15rem 0.15rem;
+		color: var(--text);
+		transition: color 100ms ease-out, border-width 100ms ease-out, -webkit-text-stroke-color 100ms ease-out;
+		animation: strokeBackwards 100ms linear forwards
+		-webkit-text-stroke-color: var(--text);
+}
+	.auth:hover {
+		color: white;
+		border-width: 0.25rem 0.5rem 0.25rem 0.5rem;
+		animation: border-animation 100ms linear forwards;
+	}
+	.auth:active {
+		border-width: 0.20rem 0.35rem 0.20rem 0.35rem;
+	}
+
+@keyframes strokeBackwards {
+  0%   { -webkit-text-stroke-width: 0.25rem; }
+  5%   { -webkit-text-stroke-width: 0.245rem; }
+  10%  { -webkit-text-stroke-width: 0.24rem; }
+  15%  { -webkit-text-stroke-width: 0.235rem; }
+  20%  { -webkit-text-stroke-width: 0.23rem; }
+  25%  { -webkit-text-stroke-width: 0.225rem; }
+  30%  { -webkit-text-stroke-width: 0.22rem; }
+  35%  { -webkit-text-stroke-width: 0.215rem; }
+  40%  { -webkit-text-stroke-width: 0.21rem; }
+  45%  { -webkit-text-stroke-width: 0.205rem; }
+  50%  { -webkit-text-stroke-width: 0.2rem; }
+  55%  { -webkit-text-stroke-width: 0.195rem; }
+  60%  { -webkit-text-stroke-width: 0.19rem; }
+  65%  { -webkit-text-stroke-width: 0.185rem; }
+  70%  { -webkit-text-stroke-width: 0.18rem; }
+  75%  { -webkit-text-stroke-width: 0.175rem; }
+  80%  { -webkit-text-stroke-width: 0.17rem; }
+  85%  { -webkit-text-stroke-width: 0.165rem; }
+  90%  { -webkit-text-stroke-width: 0.16rem; }
+  95%  { -webkit-text-stroke-width: 0.155rem; }
+  100% { -webkit-text-stroke-width: 0.15rem; }
+	}
+	@keyframes border-animation {
+  0%   { -webkit-text-stroke-width: 0.15rem; }
+  5%   { -webkit-text-stroke-width: 0.155rem; }
+  10%  { -webkit-text-stroke-width: 0.16rem; }
+  15%  { -webkit-text-stroke-width: 0.165rem; }
+  20%  { -webkit-text-stroke-width: 0.17rem; }
+  25%  { -webkit-text-stroke-width: 0.175rem; }
+  30%  { -webkit-text-stroke-width: 0.18rem; }
+  35%  { -webkit-text-stroke-width: 0.185rem; }
+  40%  { -webkit-text-stroke-width: 0.19rem; }
+  45%  { -webkit-text-stroke-width: 0.195rem; }
+  50%  { -webkit-text-stroke-width: 0.2rem; }
+  55%  { -webkit-text-stroke-width: 0.205rem; }
+  60%  { -webkit-text-stroke-width: 0.21rem; }
+  65%  { -webkit-text-stroke-width: 0.215rem; }
+  70%  { -webkit-text-stroke-width: 0.22rem; }
+  75%  { -webkit-text-stroke-width: 0.225rem; }
+  80%  { -webkit-text-stroke-width: 0.23rem; }
+  85%  { -webkit-text-stroke-width: 0.235rem; }
+  90%  { -webkit-text-stroke-width: 0.24rem; }
+  95%  { -webkit-text-stroke-width: 0.245rem; }
+  100% { -webkit-text-stroke-width: 0.25rem; }</style>
+
+</html>
+
