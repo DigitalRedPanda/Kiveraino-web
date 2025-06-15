@@ -1,8 +1,11 @@
-com/digiunion/model/URL.class
+com/digiunion/keygen/KeyGenerator.class
 com/digiunion/model/URLNotFoundRenderer.class
-com/digiunion/App.class
 META-INF/services/io.jstach.jstachio.spi.JStachioExtension
 com/digiunion/model/URLRenderer.class
-META-INF/services/io.jstach.jstachio.spi.TemplateProvider
 com/digiunion/Main.class
+com/digiunion/model/CredentialsRenderer.class
+com/digiunion/model/Credentials.class
+com/digiunion/model/URL.class
+com/digiunion/App.class
+META-INF/services/io.jstach.jstachio.spi.TemplateProvider
 com/digiunion/model/URLNotFound.class

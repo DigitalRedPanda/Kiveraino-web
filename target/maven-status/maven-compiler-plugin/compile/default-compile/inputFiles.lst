@@ -1,4 +1,6 @@
-/home/intel/Projects/java/Kivarino-Web/src/main/java/com/digiunion/model/URL.java
-/home/intel/Projects/java/Kivarino-Web/src/main/java/com/digiunion/model/URLNotFound.java
-/home/intel/Projects/java/Kivarino-Web/src/main/java/com/digiunion/App.java
-/home/intel/Projects/java/Kivarino-Web/src/main/java/com/digiunion/Main.java
+/home/digi/Projects/java/Kivarino-web/src/main/java/com/digiunion/model/URL.java
+/home/digi/Projects/java/Kivarino-web/src/main/java/com/digiunion/keygen/KeyGenerator.java
+/home/digi/Projects/java/Kivarino-web/src/main/java/com/digiunion/Main.java
+/home/digi/Projects/java/Kivarino-web/src/main/java/com/digiunion/model/Credentials.java
+/home/digi/Projects/java/Kivarino-web/src/main/java/com/digiunion/App.java
+/home/digi/Projects/java/Kivarino-web/src/main/java/com/digiunion/model/URLNotFound.java
