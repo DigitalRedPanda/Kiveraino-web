@@ -6,4 +6,3 @@ dependency-reduced-pom.xml
 *.project
 *.factorypath
 *.env
-*.gitignore
