@@ -1,8 +1,9 @@
 dependency-reduced-pom.xml
 /target/
+/.settings/
 *.class
 *.classpath
 *.project
 *.factorypath
 *.env
-
+*.gitignore
