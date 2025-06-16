@@ -9,6 +9,10 @@ import io.activej.http.HttpResponse;
 import io.activej.http.AsyncServlet;
 import io.activej.http.RoutingServlet;
 import io.activej.http.HttpServer;
+import io.activej.http.HttpClient;
+import io.activej.http.IHttpClient;
+import io.activej.dns.IDnsClient;
+import io.activej.dns.DnsClient;
 import io.activej.reactor.Reactor;
 import io.activej.inject.Injector;
 import io.activej.inject.module.ModuleBuilder;
@@ -28,59 +32,93 @@ import javax.net.ssl.SSLContextSpi;
 import javax.net.ssl.KeyManagerFactory;
 import java.util.Base64;
 import java.net.URI;
+import java.net.InetSocketAddress;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Paths;
 import java.nio.file.Files;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.Map;
 import java.io.InputStream;
+import java.io.IOException;
 import io.jstach.jstachio.JStachio;
 
+import com.digiunion.env.Dotenv;
 import com.digiunion.model.URL;
 import com.digiunion.model.URLNotFound;
+import com.digiunion.model.Credentials;
 
 /**
  * Hello world!
  */
+
 public final class App extends Launcher {
+  static {
+    try {
+      arrayList = Dotenv.load("creds/creds.env");
+    } catch(IOException e) {
+      System.err.println("");
+    }
+
+  }
 	public static final Executor executor = Executors.newVirtualThreadPerTaskExecutor();
+	public static CopyOnWriteArrayList<String> arrayList;
+
+
 
 	@Provides
 	NioReactor reactor() {
 		return Eventloop.create();
 	}
 
+  @Provides
+  IHttpClient httpClient(NioReactor reactor, IDnsClient dnsClient) {
+    return HttpClient.create(reactor, dnsClient);
+  }
+
+  @Provides 
+  IDnsClient dnsClient(NioReactor reactor) {
+    return DnsClient.builder(reactor, new InetSocketAddress("localhost", 8080)).build();
+  }
+
 	@Provides
 	AsyncServlet servlet(Reactor reactor) throws NoSuchAlgorithmException {
-		final SecureRandom secureRandom = new SecureRandom();
-		var state = new byte[64];
-		var codeVerifier = new byte[64];
-		secureRandom.nextBytes(codeVerifier);
-		secureRandom.nextBytes(state);
-		final String verifier = Base64.getUrlEncoder().withoutPadding().encodeToString(codeVerifier);
-		final byte[] challenge = Base64.getUrlEncoder()
-				.withoutPadding()
-				.encode(MessageDigest.getInstance("SHA-256")
-						.digest(verifier.getBytes(StandardCharsets.US_ASCII)));
-		var builder = new StringBuilder();
-		final URL uri = new URL(URI.create(builder.append(
-				"https://id.kick.com/oauth/authorize?response_type=code&client_id=01JWSQDDS511NH61T75TB4V89M&redirect_uri=")
-				.append(URLEncoder.encode("http://localhost:8080", StandardCharsets.UTF_8))
-				.append("&scope=")
-				.append(URLEncoder.encode(
-						"user:read channel:read channel:write chat:write events:subscribe moderation:ban",
-						StandardCharsets.UTF_8))
-				.append("&code_challenge=").append(new String(challenge, StandardCharsets.US_ASCII))
-				.append("&code_challenge_method=S256").append("&state=")
-				.append(URLEncoder.encode(new String(state, StandardCharsets.US_ASCII), StandardCharsets.UTF_8))
-				.toString()).toString());
-
 		return RoutingServlet.builder(reactor).with(GET, "/authorize",
-				request -> HttpResponse.ok200().withHtml(JStachio.render(uri)).build().toPromise())
-				.with(GET, "/*", request -> HttpResponse.ofCode(404)
-						.withHtml(JStachio.render(new URLNotFound(request.getRelativePath()))).toPromise())
-				.build();
+		  request -> {
+        final SecureRandom secureRandom = new SecureRandom();
+        var state = new byte[64];
+        var codeVerifier = new byte[64];
+        secureRandom.nextBytes(codeVerifier);
+        secureRandom.nextBytes(state);
+        final String verifier = Base64.getUrlEncoder().withoutPadding().encodeToString(codeVerifier);
+        final byte[] challenge = Base64.getUrlEncoder()
+            .withoutPadding()
+            .encode(MessageDigest.getInstance("SHA-256")
+                .digest(verifier.getBytes(StandardCharsets.US_ASCII)));
+        final URL uri = new URL(URI.create(new StringBuilder(
+            "https://id.kick.com/oauth/authorize?response_type=code&client_id=01JWSQDDS511NH61T75TB4V89M&redirect_uri=")
+            .append(URLEncoder.encode("http://localhost:8080", StandardCharsets.UTF_8))
+            .append("&scope=")
+            .append(URLEncoder.encode(
+                "user:read channel:read channel:write chat:write events:subscribe moderation:ban",
+                StandardCharsets.UTF_8))
+            .append("&code_challenge=").append(new String(challenge, StandardCharsets.US_ASCII))
+            .append("&code_challenge_method=S256").append("&state=")
+            .append(URLEncoder.encode(new String(state, StandardCharsets.US_ASCII), StandardCharsets.US_ASCII))
+            .toString()).toString());
+
+
+        return HttpResponse.ok200().withHtml(JStachio.render(uri)).build().toPromise();
+      })
+      .with(GET, "/token", request -> {
+        final Map<String, String> parameters = request.getQueryParameters();
+       return HttpResponse.redirect301("http://localhost:8080/authorize?success=true").withHtml("").toPromise();  
+    })
+			.with(GET, "/*", request -> HttpResponse.ofCode(404)
+				.withHtml(JStachio.render(new URLNotFound(request.getRelativePath()))).toPromise())
+			  .build();
 
 	}
 
