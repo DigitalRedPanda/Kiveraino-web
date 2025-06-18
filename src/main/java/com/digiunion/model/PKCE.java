@@ -1,4 +1,4 @@
 package com.digiunion.model;
 
-public record PKCE(){
+public record PKCE(String verifier, String challenge){
 }
