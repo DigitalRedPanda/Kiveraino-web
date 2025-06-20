@@ -10,10 +10,7 @@ import io.activej.http.AsyncServlet;
 import io.activej.http.StaticServlet;
 import io.activej.http.RoutingServlet;
 import io.activej.http.HttpServer;
-import io.activej.http.HttpRequest;
-import io.activej.http.HttpHeaders;
 import io.activej.http.HttpCookie;
-import io.activej.http.HttpClient;
 import io.activej.http.IHttpClient;
 import io.activej.dns.IDnsClient;
 import io.activej.dns.DnsClient;
@@ -41,6 +38,12 @@ import java.util.Base64;
 import java.net.URI;
 import java.net.InetSocketAddress;
 import java.net.URLEncoder;
+import java.net.http.HttpClient;
+import java.net.http.HttpClient.Version;
+import java.net.http.HttpRequest;
+import java.net.http.HttpRequest.BodyPublishers;
+import java.net.http.HttpHeaders;
+import java.net.http.HttpResponse.BodyHandlers;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Paths;
 import java.nio.file.Files;
@@ -51,7 +54,10 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.Map;
 import java.io.InputStream;
 import java.io.IOException;
+
 import io.jstach.jstachio.JStachio;
+
+import org.simdjson.SimdJsonParser;
 
 import com.digiunion.env.Dotenv;
 import com.digiunion.model.URL;
@@ -87,22 +93,27 @@ public final class App extends Launcher {
 	}
 
   @Provides
-  IHttpClient httpClient(NioReactor reactor, IDnsClient dnsClient) {
-    return HttpClient.create(reactor, dnsClient);
+  HttpClient client(Executor executor) throws NoSuchAlgorithmException {
+    return HttpClient.newBuilder().executor(executor).sslContext(SSLContext.getDefault()).version(Version.HTTP_2).build();
   }
-
-  @Provides 
-  IDnsClient dnsClient(NioReactor reactor) {
-    return DnsClient.builder(reactor, new InetSocketAddress("localhost", 8080)).build();
-  }
-
   //@Provides
-  //IStaticLoader staticLoader(Reactor reactor, Executor executor) {
-  //  return IStaticLoader.ofClassPath(reactor, executor, "template/");
+  //IHttpClient httpClient(NioReactor reactor, IDnsClient dnsClient, Executor executor) throws NoSuchAlgorithmException{
+  //  return io.activej.http.HttpClient.builder(reactor, dnsClient).withSslEnabled(SSLContext.getDefault(), executor).build();
   //}
+  ////
+  //
+  //@Provides 
+  //IDnsClient dnsClient(NioReactor reactor) {
+  //  return DnsClient.builder(reactor, new InetSocketAddress("localhost", 8080)).build();
+  //}
+  //
+  @Provides
+  IStaticLoader staticLoader(Reactor reactor, Executor executor) {
+    return IStaticLoader.ofClassPath(reactor, executor, "template/");
+  }
 
 	@Provides
-	AsyncServlet servlet(Reactor reactor, IHttpClient client/*, IStaticLoader loader*/) throws NoSuchAlgorithmException {
+	AsyncServlet servlet(Reactor reactor, HttpClient client/*, IStaticLoader loader*/) throws NoSuchAlgorithmException {
 		return RoutingServlet.builder(reactor).with(GET, "/authorize",
 		  request -> {
         final SecureRandom secureRandom = new SecureRandom();
@@ -110,13 +121,14 @@ public final class App extends Launcher {
         var codeVerifier = new byte[64];
         secureRandom.nextBytes(codeVerifier);
         secureRandom.nextBytes(state);
-        final String verifier = Base64.getUrlEncoder().withoutPadding().encodeToString(codeVerifier);
-        final byte[] challenge = Base64.getUrlEncoder()
+        final java.util.Base64.Encoder encoder = Base64.getUrlEncoder();
+        final String verifier = encoder.withoutPadding().encodeToString(codeVerifier);
+        final byte[] challenge = encoder
             .withoutPadding()
             .encode(MessageDigest.getInstance("SHA-256")
                 .digest(verifier.getBytes(StandardCharsets.US_ASCII)));
         final PKCE pkce = new PKCE(verifier, new String(challenge, StandardCharsets.US_ASCII));
-        final String stateEncoded = URLEncoder.encode(new String(state), StandardCharsets.US_ASCII);
+        final String stateEncoded = URLEncoder.encode(new String(state, StandardCharsets.US_ASCII), StandardCharsets.US_ASCII);
         map.put(stateEncoded, pkce);
         return HttpResponse.ok200().withHtml(JStachio.render(new URL(new StringBuilder(OauthURLs.AUTHORIZE.url).append("?response_type=code&client_id=").append(arrayList.get(0)).append("&redirect_uri=")
             .append(URLEncoder.encode(arrayList.get(2), StandardCharsets.UTF_8))
@@ -130,10 +142,29 @@ public final class App extends Launcher {
             .toString()))).build().toPromise();
       })
       .with(GET, "/callback/auth", request -> {
+        try {
         var parameters = request.getQueryParameters();
-        var response = client.request(HttpRequest.builder(HttpMethod.POST, new StringBuilder(OauthURLs.TOKEN.url).append("?code=").append(parameters.get("code")).append("&client_id=").append(arrayList.get(0)).append("&client_secret=").append(arrayList.get(1)).append("&redirect_uri=").append(arrayList.get(2)).append("&grant_type=authorization_code&code_verifier=").append(map.remove(parameters.get("state")).verifier()).toString()).withHeader(HttpHeaders.CONTENT_TYPE, "application/x-www-form-urlencoded").build()).map(res -> new String(res.getBody().getArray(), StandardCharsets.UTF_8)).getTry().ifException(System.out::println).get();
-        System.out.println(response);
-       return HttpResponse.redirect301("http://localhost:8080/authorize").withCookie(HttpCookie.builder("kat").withValue("").withHttpOnly(true).withSecure(true).build()).withHtml("""
+        //System.out.println("lmao");
+        //System.out.println(map.get(URLEncoder.encode(parameters.get("state"), StandardCharsets.US_ASCII)));
+        //map.forEach((key, value) -> {
+        //  System.out.printf("%s != %s ?\n", key, URLEncoder.encode(parameters.get("state"), StandardCharsets.US_ASCII));
+        //  if(key.equals(URLEncoder.encode(parameters.get("state"), StandardCharsets.US_ASCII))) {
+        //    System.out.println("أسلم!!!!!");
+        //  }
+        //});
+        var body = new StringBuilder("code=").append(parameters.get("code")).append("&client_id=").append(URLEncoder.encode(arrayList.get(0), StandardCharsets.US_ASCII)).append("&client_secret=").append(URLEncoder.encode(arrayList.get(1), StandardCharsets.US_ASCII)).append("&redirect_uri=").append(URLEncoder.encode(arrayList.get(2), StandardCharsets.US_ASCII)).append("&grant_type=authorization_code&code_verifier=").append(map.remove(URLEncoder.encode(parameters.get("state"), StandardCharsets.US_ASCII)).verifier()).toString();
+        //var response = client.request(io.activej.http.HttpRequest.builder(HttpMethod.POST, OauthURLs.TOKEN.url.concat('?' + body)).withHeader(io.activej.http.HttpHeaders.CONTENT_TYPE, "application/x-www-form-urlencoded").build());
+        //var result = response.map(res -> new String(res.getBody().getArray(), StandardCharsets.UTF_8)).getResult();
+        //var code = response.map(res -> res.getCode()).getResult();
+        //System.out.println(result + ",\t" + code);
+        var response = client.sendAsync(HttpRequest.newBuilder(URI.create(OauthURLs.TOKEN.url)).headers("Content-Type", "application/x-www-form-urlencoded").POST(BodyPublishers.ofString(body)).build(), BodyHandlers.ofString()).join();
+        final String responseBody = response.body();
+        System.out.println(responseBody);
+        //System.out.println(result);
+        } catch(Exception e) {
+          System.err.printf("[\033[31mSEVERE\033[0m] could not send request; %s", e.getMessage());
+      }
+       return HttpResponse.redirect301("http://localhost:8080/authorize")/*.withCookie(HttpCookie.builder("kat").withValue("").withHttpOnly(true).withSecure(true).build())*/.withHtml("""
 <!DOCTYPE html>
 <html>
   <header>
