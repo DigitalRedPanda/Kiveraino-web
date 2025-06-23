@@ -1,5 +1,5 @@
 package com.digiunion.kick.model;
 
-import org.simdjson.annotations.JsonFieldName;
+import com.alibaba.fastjson2.annotation.JSONField;
 
-public record Credentials( @JsonFieldName("access_token") String accessToken, @JsonFieldName("expires_in") int expiresIn, @JsonFieldName("refresh_token") String refreshToken, @JsonFieldName("scopes") String scopes, @JsonFieldName("token_type") String tokenType) {}
+public record Credentials(@JSONField(name = "access_token") String accessToken, @JSONField(name = "expires_in") int expiresIn, @JSONField(name = "refresh_token") String refreshToken,@JSONField(name = "scope") String scope, @JSONField(name = "token_type")String tokenType) {}

@@ -3,6 +3,7 @@ package com.digiunion;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.digiunion.model.PKCE;
+import com.digiunion.util.StringUtils;
 
 import io.activej.http.HttpClient;
 import io.activej.http.IHttpClient;
@@ -42,6 +43,12 @@ public class AppTest {
           System.out.println(key + ": " + map.remove(key));
         });
       });
+    }
+
+    @Test 
+    public void stringUtilTest() {
+      var string = "code=erwerqwdsa32asdeyhdrhfgzfgFasxdgh&state=y3t%24%40erwer%21%40%23%24%21%40%25%2A%25%5E%26%23%24%25%40%29%3D678456erterdfgsdfher31242%40%23%23~wdfsgde%5E";
+      System.out.printf("%s == %s?\n", StringUtils.split(string, '&', 2)[1], "state=y3t%24%40erwer%21%40%23%24%21%40%25%2A%25%5E%26%23%24%25%40%29%3D678456erterdfgsdfher31242%40%23%23~wdfsgde%5E");
     }
 
 }

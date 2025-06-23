@@ -22,10 +22,11 @@ import io.activej.service.ServiceGraphModule;
 import io.activej.inject.module.AbstractModule;
 import io.activej.reactor.nio.NioReactor;
 import static io.activej.http.HttpMethod.GET;
-import io.activej.http.HttpMethod;
 import io.activej.eventloop.Eventloop;
 import io.activej.http.loader.CacheStaticLoader;
 import io.activej.http.loader.IStaticLoader;
+
+import com.alibaba.fastjson2.JSON;
 
 import java.security.SecureRandom;
 import java.security.KeyStore;
@@ -38,6 +39,7 @@ import java.util.Base64;
 import java.net.URI;
 import java.net.InetSocketAddress;
 import java.net.URLEncoder;
+import java.net.URLDecoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpClient.Version;
 import java.net.http.HttpRequest;
@@ -52,8 +54,13 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.Map;
+import java.time.Duration;
 import java.io.InputStream;
 import java.io.IOException;
+import java.util.stream.Stream;
+import java.util.Arrays;
+import java.util.stream.Collectors;
+
 
 import io.jstach.jstachio.JStachio;
 
@@ -64,23 +71,29 @@ import com.digiunion.model.URL;
 import com.digiunion.model.URLNotFound;
 import com.digiunion.model.PKCE;
 import com.digiunion.kick.OauthURLs;
+import com.digiunion.database.Database;
+import com.digiunion.util.StringUtils;
+import com.digiunion.kick.model.Credentials;
 
 /**
  * Hello world!
  */
 
 public final class App extends Launcher {
+
   static {
     try {
-      arrayList = Dotenv.load("/creds/creds.env");
+      arrayList = Dotenv.load("/creds/creds.env").stream().map(element -> URLEncoder.encode(element, StandardCharsets.US_ASCII)).collect(Collectors.toCollection(CopyOnWriteArrayList::new));
+      database = new Database();
     } catch(IOException e) {
       System.err.println("[\033[31mSEVERE\033[0m] could not find/open credentials file; " + e.getMessage());
     }
 
   }
-	public static CopyOnWriteArrayList<String> arrayList;
+	private static CopyOnWriteArrayList<String> arrayList;
 
-  public static ConcurrentHashMap<String, PKCE> map = new ConcurrentHashMap<>();
+  private static Database database;
+
 
   @Provides
   Executor executor() {
@@ -104,16 +117,16 @@ public final class App extends Launcher {
   //
   //@Provides 
   //IDnsClient dnsClient(NioReactor reactor) {
-  //  return DnsClient.builder(reactor, new InetSocketAddress("localhost", 8080)).build();
+  //  return DnsClient.builder(reactor, new InetSocketAddress("localhost", 8080)).withTimeout(Duration.ofSeconds(5)).build();
   //}
   //
   @Provides
   IStaticLoader staticLoader(Reactor reactor, Executor executor) {
-    return IStaticLoader.ofClassPath(reactor, executor, "template/");
+    return IStaticLoader.ofClassPath(reactor, executor, "/template/");
   }
 
 	@Provides
-	AsyncServlet servlet(Reactor reactor, HttpClient client/*, IStaticLoader loader*/) throws NoSuchAlgorithmException {
+	AsyncServlet servlet(Reactor reactor, HttpClient client, IStaticLoader loader) throws NoSuchAlgorithmException {
 		return RoutingServlet.builder(reactor).with(GET, "/authorize",
 		  request -> {
         final SecureRandom secureRandom = new SecureRandom();
@@ -122,16 +135,16 @@ public final class App extends Launcher {
         secureRandom.nextBytes(codeVerifier);
         secureRandom.nextBytes(state);
         final java.util.Base64.Encoder encoder = Base64.getUrlEncoder();
-        final String verifier = encoder.withoutPadding().encodeToString(codeVerifier);
+        final String verifier = Base64.getUrlEncoder().withoutPadding().encodeToString(codeVerifier);
         final byte[] challenge = encoder
             .withoutPadding()
             .encode(MessageDigest.getInstance("SHA-256")
                 .digest(verifier.getBytes(StandardCharsets.US_ASCII)));
         final PKCE pkce = new PKCE(verifier, new String(challenge, StandardCharsets.US_ASCII));
-        final String stateEncoded = URLEncoder.encode(new String(state, StandardCharsets.US_ASCII), StandardCharsets.US_ASCII);
-        map.put(stateEncoded, pkce);
+        final String stateEncoded = encoder.withoutPadding().encodeToString(state);
+        database.setEntry(stateEncoded, pkce);
         return HttpResponse.ok200().withHtml(JStachio.render(new URL(new StringBuilder(OauthURLs.AUTHORIZE.url).append("?response_type=code&client_id=").append(arrayList.get(0)).append("&redirect_uri=")
-            .append(URLEncoder.encode(arrayList.get(2), StandardCharsets.UTF_8))
+            .append(arrayList.get(2))
             .append("&scope=")
             .append(URLEncoder.encode(
                 "user:read channel:read channel:write chat:write events:subscribe moderation:ban",
@@ -152,19 +165,25 @@ public final class App extends Launcher {
         //    System.out.println("أسلم!!!!!");
         //  }
         //});
-        var body = new StringBuilder("code=").append(parameters.get("code")).append("&client_id=").append(URLEncoder.encode(arrayList.get(0), StandardCharsets.US_ASCII)).append("&client_secret=").append(URLEncoder.encode(arrayList.get(1), StandardCharsets.US_ASCII)).append("&redirect_uri=").append(URLEncoder.encode(arrayList.get(2), StandardCharsets.US_ASCII)).append("&grant_type=authorization_code&code_verifier=").append(map.remove(URLEncoder.encode(parameters.get("state"), StandardCharsets.US_ASCII)).verifier()).toString();
+        var body = new StringBuilder("code=").append(parameters.get("code")).append("&client_id=").append(arrayList.get(0)).append("&client_secret=").append(arrayList.get(1)).append("&redirect_uri=").append(arrayList.get(2)).append("&grant_type=authorization_code&code_verifier=").append(database.getDelEntry(StringUtils.split(StringUtils.split(request.getQuery(), '&', 2)[1], '=',2)[1])).toString();
         //var response = client.request(io.activej.http.HttpRequest.builder(HttpMethod.POST, OauthURLs.TOKEN.url.concat('?' + body)).withHeader(io.activej.http.HttpHeaders.CONTENT_TYPE, "application/x-www-form-urlencoded").build());
         //var result = response.map(res -> new String(res.getBody().getArray(), StandardCharsets.UTF_8)).getResult();
         //var code = response.map(res -> res.getCode()).getResult();
         //System.out.println(result + ",\t" + code);
-        var response = client.sendAsync(HttpRequest.newBuilder(URI.create(OauthURLs.TOKEN.url)).headers("Content-Type", "application/x-www-form-urlencoded").POST(BodyPublishers.ofString(body)).build(), BodyHandlers.ofString()).join();
-        final String responseBody = response.body();
-        System.out.println(responseBody);
+        //var response = client.sendAsync(HttpRequest.newBuilder(URI.create(OauthURLs.TOKEN.url)).headers("Content-Type", "application/x-www-form-urlencoded").POST(BodyPublishers.ofString(body)).build(), BodyHandlers.ofString()).join();
+        //final HttpResponse response = (HttpResponse) reactor.submit(a -> 
+        //  client.request(HttpRequest.builder(HttpMethod.POST, OauthURLs.TOKEN.url).withHeader(HttpHeaders.CONTENT_TYPE, "application/x-www-form-urlencoded").withBody(body).build()).whenException(e -> System.out.println(e.getMessage())).getResult()
+        //).get();
+        var response = client.sendAsync(HttpRequest.newBuilder(URI.create(OauthURLs.TOKEN.url)).headers("Content-Type", "application/x-www-form-urlencoded").POST(BodyPublishers.ofString(body)).build(), BodyHandlers.ofString());
+        final Credentials responseBody = response.thenApply(res -> {
+          return JSON.parseObject(res.body(), Credentials.class);
+        }).join();
+        //System.out.println(responseBody);
         //System.out.println(result);
         } catch(Exception e) {
-          System.err.printf("[\033[31mSEVERE\033[0m] could not send request; %s", e.getMessage());
+          System.err.printf("[\033[31mSEVERE\033[0m] could not send request; %s\n", e.getMessage());
       }
-       return HttpResponse.redirect301("http://localhost:8080/authorize")/*.withCookie(HttpCookie.builder("kat").withValue("").withHttpOnly(true).withSecure(true).build())*/.withHtml("""
+       return HttpResponse.redirect301("http://localhost:8080/authorize").withCookie(HttpCookie.builder("kat").withValue("").withHttpOnly(true).withSecure(true).build()).withHtml("""
 <!DOCTYPE html>
 <html>
   <header>
@@ -220,6 +239,7 @@ public final class App extends Launcher {
     })
 			.with(GET, "/*", request -> HttpResponse.ofCode(404)
 				.withHtml(JStachio.render(new URLNotFound(request.getRelativePath()))).toPromise())
+      .with("/", StaticServlet.builder(reactor, loader).withResponse(() -> HttpResponse.ok200().withHtml("main.html")).build())
 			  .build();
 
 	}
