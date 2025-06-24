@@ -25,6 +25,8 @@ import static io.activej.http.HttpMethod.GET;
 import io.activej.eventloop.Eventloop;
 import io.activej.http.loader.CacheStaticLoader;
 import io.activej.http.loader.IStaticLoader;
+import io.activej.http.HttpCookie.SameSite;
+
 
 import com.alibaba.fastjson2.JSON;
 
@@ -60,6 +62,12 @@ import java.io.IOException;
 import java.util.stream.Stream;
 import java.util.Arrays;
 import java.util.stream.Collectors;
+import java.time.Instant;
+import java.time.temporal.Temporal;
+import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
+import java.time.OffsetDateTime;
+import java.time.LocalDateTime;
 
 
 import io.jstach.jstachio.JStachio;
@@ -70,6 +78,7 @@ import com.digiunion.env.Dotenv;
 import com.digiunion.model.URL;
 import com.digiunion.model.URLNotFound;
 import com.digiunion.model.PKCE;
+import com.digiunion.model.Auth;
 import com.digiunion.kick.OauthURLs;
 import com.digiunion.database.Database;
 import com.digiunion.util.StringUtils;
@@ -129,30 +138,46 @@ public final class App extends Launcher {
 	AsyncServlet servlet(Reactor reactor, HttpClient client, IStaticLoader loader) throws NoSuchAlgorithmException {
 		return RoutingServlet.builder(reactor).with(GET, "/authorize",
 		  request -> {
-        final SecureRandom secureRandom = new SecureRandom();
-        var state = new byte[64];
-        var codeVerifier = new byte[64];
-        secureRandom.nextBytes(codeVerifier);
-        secureRandom.nextBytes(state);
-        final java.util.Base64.Encoder encoder = Base64.getUrlEncoder();
-        final String verifier = Base64.getUrlEncoder().withoutPadding().encodeToString(codeVerifier);
-        final byte[] challenge = encoder
-            .withoutPadding()
-            .encode(MessageDigest.getInstance("SHA-256")
-                .digest(verifier.getBytes(StandardCharsets.US_ASCII)));
-        final PKCE pkce = new PKCE(verifier, new String(challenge, StandardCharsets.US_ASCII));
-        final String stateEncoded = encoder.withoutPadding().encodeToString(state);
-        database.setEntry(stateEncoded, pkce);
-        return HttpResponse.ok200().withHtml(JStachio.render(new URL(new StringBuilder(OauthURLs.AUTHORIZE.url).append("?response_type=code&client_id=").append(arrayList.get(0)).append("&redirect_uri=")
-            .append(arrayList.get(2))
-            .append("&scope=")
-            .append(URLEncoder.encode(
-                "user:read channel:read channel:write chat:write events:subscribe moderation:ban",
-                StandardCharsets.UTF_8))
-            .append("&code_challenge=").append(new String(challenge, StandardCharsets.US_ASCII))
-            .append("&code_challenge_method=S256").append("&state=")
-            .append(stateEncoded)
-            .toString()))).build().toPromise();
+      try {      
+        var cookie = request.getCookie("kt");
+        System.out.println(cookie);
+        if(cookie != null) {
+          var processedCookie = StringUtils.split(cookie, '|', 1);
+          return HttpResponse.ok200().withHeader(io.activej.http.HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, "http://localhost:8080").withHeader(io.activej.http.HttpHeaders.ACCESS_CONTROL_ALLOW_CREDENTIALS, "true").withHeader(io.activej.http.HttpHeaders.X_XSS_PROTECTION, "1; mode=block").withHeader(io.activej.http.HttpHeaders.X_CONTENT_TYPE_OPTIONS, "nosniff")
+.withHeader(io.activej.http.HttpHeaders.X_FRAME_OPTIONS, "DENY").withHtml(JStachio.render(new Auth(processedCookie[0], processedCookie[1]))).toPromise();
+        } else {
+          final SecureRandom secureRandom = new SecureRandom();
+          var state = new byte[64];
+          var codeVerifier = new byte[64];
+          secureRandom.nextBytes(codeVerifier);
+          secureRandom.nextBytes(state);
+          final java.util.Base64.Encoder encoder = Base64.getUrlEncoder();
+          final String verifier = Base64.getUrlEncoder().withoutPadding().encodeToString(codeVerifier);
+          final byte[] challenge = encoder
+              .withoutPadding()
+              .encode(MessageDigest.getInstance("SHA-256")
+                  .digest(verifier.getBytes(StandardCharsets.US_ASCII)));
+          final PKCE pkce = new PKCE(verifier, new String(challenge, StandardCharsets.US_ASCII));
+          final String stateEncoded = encoder.withoutPadding().encodeToString(state);
+          database.setEntry(stateEncoded, pkce);
+          return HttpResponse.ok200().withHtml(JStachio.render(new URL(new StringBuilder(OauthURLs.AUTHORIZE.url).append("?response_type=code&client_id=").append(arrayList.get(0)).append("&redirect_uri=")
+              .append(arrayList.get(2))
+              .append("&scope=")
+              .append(URLEncoder.encode(
+                  "user:read channel:read channel:write chat:write events:subscribe moderation:ban",
+                  StandardCharsets.UTF_8))
+              .append("&code_challenge=").append(new String(challenge, StandardCharsets.US_ASCII))
+              .append("&code_challenge_method=S256").append("&state=")
+              .append(stateEncoded)
+              .toString()))).build().toPromise();
+
+        }
+
+        } catch(Exception e) {
+          System.out.printf("[\033[31mSEVERE\033[0m] could not process request; %s\n", e.getMessage());
+          return HttpResponse.ofCode(500).toPromise();
+        }
+
       })
       .with(GET, "/callback/auth", request -> {
         try {
@@ -174,23 +199,19 @@ public final class App extends Launcher {
         //final HttpResponse response = (HttpResponse) reactor.submit(a -> 
         //  client.request(HttpRequest.builder(HttpMethod.POST, OauthURLs.TOKEN.url).withHeader(HttpHeaders.CONTENT_TYPE, "application/x-www-form-urlencoded").withBody(body).build()).whenException(e -> System.out.println(e.getMessage())).getResult()
         //).get();
-        var response = client.sendAsync(HttpRequest.newBuilder(URI.create(OauthURLs.TOKEN.url)).headers("Content-Type", "application/x-www-form-urlencoded").POST(BodyPublishers.ofString(body)).build(), BodyHandlers.ofString());
-        final Credentials responseBody = response.thenApply(res -> {
+        final Credentials responseBody = client.sendAsync(HttpRequest.newBuilder(URI.create(OauthURLs.TOKEN.url)).headers("Content-Type", "application/x-www-form-urlencoded").POST(BodyPublishers.ofString(body)).build(), BodyHandlers.ofString()).thenApply(res -> {
           return JSON.parseObject(res.body(), Credentials.class);
         }).join();
-        //System.out.println(responseBody);
-        //System.out.println(result);
-        } catch(Exception e) {
-          System.err.printf("[\033[31mSEVERE\033[0m] could not send request; %s\n", e.getMessage());
-      }
-       return HttpResponse.redirect301("http://localhost:8080/authorize").withCookie(HttpCookie.builder("kat").withValue("").withHttpOnly(true).withSecure(true).build()).withHtml("""
+        if (!responseBody.isEmpty()) {
+          return HttpResponse.redirect301("http://localhost:8080/authorize").withHeader(io.activej.http.HttpHeaders.X_CONTENT_TYPE_OPTIONS, "nosniff")
+.withHeader(io.activej.http.HttpHeaders.X_FRAME_OPTIONS, "DENY").withHtml("""
 <!DOCTYPE html>
 <html>
   <header>
     <title>Fetching token...</title>
   </header>
   <body>
-    <div class="box"></div>
+    <div id="box"></div>
   </body>
   <style>
 	:root {
@@ -201,7 +222,7 @@ public final class App extends Launcher {
   body {
     background-color: var(--background);
   }
-  .box {
+  #box {
     position: absolute;
     top: 50%;
     left: 50%;
@@ -212,7 +233,6 @@ public final class App extends Launcher {
     border-radius: 50%;
     animation: 1s ease-in-out infinite loading;
   }
-
 
   @keyframes loading {
     0% {
@@ -235,7 +255,167 @@ public final class App extends Launcher {
 
   </style>
 </html>
-        """).toPromise();
+        """).withHeader(io.activej.http.HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, "http://localhost:8080").withHeader(io.activej.http.HttpHeaders.ACCESS_CONTROL_ALLOW_CREDENTIALS, "true").withHeader(io.activej.http.HttpHeaders.X_XSS_PROTECTION, "1; mode=block").withCookie(HttpCookie.builder("kt").withValue(new StringBuilder(responseBody.accessToken()).append('|').append(responseBody.refreshToken()).toString()).withHttpOnly(true).withSecure(true).withSameSite(SameSite.LAX).withPath("/").withDomain("localhost").withExpirationDate(Instant.now().plusSeconds(responseBody.expiresIn())).build()).toPromise();
+        } else {
+          return HttpResponse.ofCode(500).withHtml("""
+          <!DOCTYPE html>
+          <html>
+            <header>
+              <title>Fetching token...</title>
+            </header>
+            <body>
+              <div id="box"><h1>Auth failed</h1><p>request failed</p></div>
+            </body>
+            <style>
+            :root {
+              --text: #00e701;
+              --background: #0b0e0f; 
+              --border: #474f54
+            }
+            body {
+              background-color: var(--background);
+            }
+            p {
+              font-family: 'Inter', sans-serif;		
+              color: rgba(122,122,122,0);
+              animation: 0.04s ease-in 0.95s forwards opacity-shift;
+            }
+            h1 {
+              font-family: 'Inter', sans-serif;		
+              color: rgba(122,122,122,0);
+              animation: 0.10s ease-in 0.90s forwards opacity-shift;
+
+            }
+          #box {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 25vw;
+            height: 25vw;
+            border: 0.25rem solid var(--border);
+            border-radius: 50%;
+            animation: 1s ease-in-out forwards loading;
+          }
+
+          @keyframes opacity-shift {
+            0% {
+              color: rgba(122,122,122,0);
+            }
+            100% {
+              color: rgba(122,122,122,1);
+
+            }
+          }
+
+            @keyframes loading {
+              0% {
+                width: 25vw;
+                height: 25vw;
+              }
+              50% {
+                width: 50vw;
+                height: 50vw;
+              }
+              100% {
+                width: 25vw;
+                height: 25vw;
+                border-color: darkred;
+              }
+
+            }
+
+            </style>
+          </html>
+                    """).toPromise();
+
+        }
+        //System.out.println(responseBody);
+        //System.out.println(result);
+        
+        } catch(Exception e) {
+          System.err.printf("[\033[31mSEVERE\033[0m] could not send request; %s\n", e.getMessage());
+          return HttpResponse.ofCode(500).withHtml("""
+          <!DOCTYPE html>
+          <html>
+            <header>
+              <title>Fetching token...</title>
+            </header>
+            <body>
+              <div id="box"><h1>Auth failed</h1><p>request failed</p></div>
+            </body>
+            <style>
+            :root {
+              --text: #00e701;
+              --background: #0b0e0f; 
+              --border: #474f54
+            }
+            body {
+              background-color: var(--background);
+            }
+            p {
+              font-family: 'Inter', sans-serif;		
+              color: rgba(122,122,122,0);
+              animation: 0.04s ease-in 0.95s forwards opacity-shift;
+            }
+            h1 {
+              font-family: 'Inter', sans-serif;		
+              color: rgba(122,122,122,0);
+              animation: 0.10s ease-in 0.90s forwards opacity-shift;
+
+            }
+          #box {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 25vw;
+            height: 25vw;
+            border: 0.25rem solid var(--border);
+            border-radius: 50%;
+            animation: 1s ease-in-out forwards loading;
+          }
+
+          @keyframes opacity-shift {
+            0% {
+              color: rgba(122,122,122,0);
+            }
+            100% {
+              color: rgba(122,122,122,1);
+
+            }
+          }
+
+            @keyframes loading {
+              0% {
+                width: 25vw;
+                height: 25vw;
+              }
+              50% {
+                width: 50vw;
+                height: 50vw;
+              }
+              100% {
+                width: 25vw;
+                height: 25vw;
+                border-color: darkred;
+              }
+
+            }
+
+            </style>
+          </html>
+                  """).toPromise();
+      }
+
     })
 			.with(GET, "/*", request -> HttpResponse.ofCode(404)
 				.withHtml(JStachio.render(new URLNotFound(request.getRelativePath()))).toPromise())

@@ -50,5 +50,10 @@ public class AppTest {
       var string = "code=erwerqwdsa32asdeyhdrhfgzfgFasxdgh&state=y3t%24%40erwer%21%40%23%24%21%40%25%2A%25%5E%26%23%24%25%40%29%3D678456erterdfgsdfher31242%40%23%23~wdfsgde%5E";
       System.out.printf("%s == %s?\n", StringUtils.split(string, '&', 2)[1], "state=y3t%24%40erwer%21%40%23%24%21%40%25%2A%25%5E%26%23%24%25%40%29%3D678456erterdfgsdfher31242%40%23%23~wdfsgde%5E");
     }
+    @Test
+    public void cookieParsingTest() {
+      var testString = "MZLMYJMYNMYTZJBJZS0ZYTIZLTKZODYTNGVLMZE2NTG0ZWU2|NTRHMDU1MZYTNMZHNS01MJC4LTLHZDGTMTBJOWNMMZFLODM2";
+      System.out.println("MZLMYJMYNMYTZJBJZS0ZYTIZLTKZODYTNGVLMZE2NTG0ZWU2 == " + StringUtils.split(testString, '|', 1)[0]);
+    }
 
 }

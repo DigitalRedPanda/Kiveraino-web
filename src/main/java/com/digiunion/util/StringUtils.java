@@ -22,7 +22,7 @@ public interface StringUtils {
 
   public static String[] split(String string, char delimiter, int limit) {
     final char[] temp = string.toCharArray();
-    var stringArray = new String[limit];
+    var stringArray = new String[limit+1];
     var count = 0;
     var currentI = 0;
     for(var i = 0; i < temp.length && count < limit; i++) {
