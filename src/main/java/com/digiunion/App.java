@@ -92,14 +92,18 @@ public final class App extends Launcher {
 
   static {
     try {
-      arrayList = Dotenv.load("/creds/creds.env").stream().map(element -> URLEncoder.encode(element, StandardCharsets.US_ASCII)).collect(Collectors.toCollection(CopyOnWriteArrayList::new));
+      arrayListUnencoded = Dotenv.load("/creds/creds.env");
+      arrayList = App.arrayListUnencoded.stream().map(element -> URLEncoder.encode(element, StandardCharsets.US_ASCII)).collect(Collectors.toCollection(CopyOnWriteArrayList::new));
       database = new Database();
     } catch(IOException e) {
       System.err.println("[\033[31mSEVERE\033[0m] could not find/open credentials file; " + e.getMessage());
     }
 
   }
-	private static CopyOnWriteArrayList<String> arrayList;
+	
+  private static CopyOnWriteArrayList<String> arrayListUnencoded;
+
+  private static CopyOnWriteArrayList<String> arrayList;
 
   private static Database database;
 
@@ -140,10 +144,9 @@ public final class App extends Launcher {
 		  request -> {
       try {      
         var cookie = request.getCookie("kt");
-        System.out.println(cookie);
         if(cookie != null) {
           var processedCookie = StringUtils.split(cookie, '|', 1);
-          return HttpResponse.ok200().withHeader(io.activej.http.HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, "http://localhost:8080").withHeader(io.activej.http.HttpHeaders.ACCESS_CONTROL_ALLOW_CREDENTIALS, "true").withHeader(io.activej.http.HttpHeaders.X_XSS_PROTECTION, "1; mode=block").withHeader(io.activej.http.HttpHeaders.X_CONTENT_TYPE_OPTIONS, "nosniff")
+          return HttpResponse.ok200().withHeader(io.activej.http.HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, arrayListUnencoded.get(4)).withHeader(io.activej.http.HttpHeaders.ACCESS_CONTROL_ALLOW_CREDENTIALS, "true").withHeader(io.activej.http.HttpHeaders.X_XSS_PROTECTION, "1; mode=block").withHeader(io.activej.http.HttpHeaders.X_CONTENT_TYPE_OPTIONS, "nosniff")
 .withHeader(io.activej.http.HttpHeaders.X_FRAME_OPTIONS, "DENY").withHtml(JStachio.render(new Auth(processedCookie[0], processedCookie[1]))).toPromise();
         } else {
           final SecureRandom secureRandom = new SecureRandom();
@@ -203,7 +206,9 @@ public final class App extends Launcher {
           return JSON.parseObject(res.body(), Credentials.class);
         }).join();
         if (!responseBody.isEmpty()) {
-          return HttpResponse.redirect301("http://localhost:8080/authorize").withHeader(io.activej.http.HttpHeaders.X_CONTENT_TYPE_OPTIONS, "nosniff")
+          System.out.println(responseBody);
+          Instant instant = Instant.now();
+          return HttpResponse.redirect301(arrayListUnencoded.get(4) + "/authorize").withHeader(io.activej.http.HttpHeaders.X_CONTENT_TYPE_OPTIONS, "nosniff")
 .withHeader(io.activej.http.HttpHeaders.X_FRAME_OPTIONS, "DENY").withHtml("""
 <!DOCTYPE html>
 <html>
@@ -255,7 +260,7 @@ public final class App extends Launcher {
 
   </style>
 </html>
-        """).withHeader(io.activej.http.HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, "http://localhost:8080").withHeader(io.activej.http.HttpHeaders.ACCESS_CONTROL_ALLOW_CREDENTIALS, "true").withHeader(io.activej.http.HttpHeaders.X_XSS_PROTECTION, "1; mode=block").withCookie(HttpCookie.builder("kt").withValue(new StringBuilder(responseBody.accessToken()).append('|').append(responseBody.refreshToken()).toString()).withHttpOnly(true).withSecure(true).withSameSite(SameSite.LAX).withPath("/").withDomain("localhost").withExpirationDate(Instant.now().plusSeconds(responseBody.expiresIn())).build()).toPromise();
+        """).withHeader(io.activej.http.HttpHeaders.CONTENT_SECURITY_POLICY, "default-src 'self'; img-src 'self' kivarino.xyz").withHeader(io.activej.http.HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, arrayListUnencoded.get(4)).withHeader(io.activej.http.HttpHeaders.ACCESS_CONTROL_ALLOW_CREDENTIALS, "true").withHeader(io.activej.http.HttpHeaders.X_XSS_PROTECTION, "1; mode=block").withCookie(HttpCookie.builder("kt").withValue(new StringBuilder(responseBody.accessToken()).append('|').append(responseBody.refreshToken()).toString()).withHttpOnly(true).withSecure(true).withSameSite(SameSite.LAX).withPath("/").withDomain(arrayListUnencoded.get(5)).withExpirationDate(instant.atOffset(ZoneOffset.of("+03:00")).plusSeconds(responseBody.expiresIn()).toInstant()).build()).toPromise();
         } else {
           return HttpResponse.ofCode(500).withHtml("""
           <!DOCTYPE html>
