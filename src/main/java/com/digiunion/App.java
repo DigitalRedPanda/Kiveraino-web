@@ -22,6 +22,7 @@ import io.activej.service.ServiceGraphModule;
 import io.activej.inject.module.AbstractModule;
 import io.activej.reactor.nio.NioReactor;
 import static io.activej.http.HttpMethod.GET;
+import static io.activej.http.HttpMethod.POST;
 import io.activej.eventloop.Eventloop;
 import io.activej.http.loader.CacheStaticLoader;
 import io.activej.http.loader.IStaticLoader;
@@ -83,6 +84,7 @@ import com.digiunion.kick.OauthURLs;
 import com.digiunion.database.Database;
 import com.digiunion.util.StringUtils;
 import com.digiunion.kick.model.Credentials;
+import com.digiunion.servlet.SecureResponses;
 
 /**
  * Hello world!
@@ -207,9 +209,8 @@ public final class App extends Launcher {
         }).join();
         if (!responseBody.isEmpty()) {
           System.out.println(responseBody);
-          Instant instant = Instant.now();
-          return HttpResponse.redirect301(arrayListUnencoded.get(4) + "/authorize").withHeader(io.activej.http.HttpHeaders.X_CONTENT_TYPE_OPTIONS, "nosniff")
-.withHeader(io.activej.http.HttpHeaders.X_FRAME_OPTIONS, "DENY").withHtml("""
+          return SecureResponses.secureStatic(HttpResponse.redirect301(arrayListUnencoded.get(4) + "/authorize")
+              .withHtml("""
 <!DOCTYPE html>
 <html>
   <header>
@@ -260,9 +261,9 @@ public final class App extends Launcher {
 
   </style>
 </html>
-        """).withHeader(io.activej.http.HttpHeaders.CONTENT_SECURITY_POLICY, "default-src 'self'; img-src 'self' kivarino.xyz").withHeader(io.activej.http.HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, arrayListUnencoded.get(4)).withHeader(io.activej.http.HttpHeaders.ACCESS_CONTROL_ALLOW_CREDENTIALS, "true").withHeader(io.activej.http.HttpHeaders.X_XSS_PROTECTION, "1; mode=block").withCookie(HttpCookie.builder("kt").withValue(new StringBuilder(responseBody.accessToken()).append('|').append(responseBody.refreshToken()).toString()).withHttpOnly(true).withSecure(true).withSameSite(SameSite.LAX).withPath("/").withDomain(arrayListUnencoded.get(5)).withExpirationDate(instant.atOffset(ZoneOffset.of("+03:00")).plusSeconds(responseBody.expiresIn()).toInstant()).build()).toPromise();
+        """).withHeader(io.activej.http.HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, arrayListUnencoded.get(4)).withCookie(HttpCookie.builder("kt").withValue(new StringBuilder(responseBody.accessToken()).append('|').append(responseBody.refreshToken()).toString()).withHttpOnly(true).withSecure(true).withSameSite(SameSite.LAX).withPath("/").withDomain(arrayListUnencoded.get(5)).withExpirationDate(Instant.now().plusSeconds(responseBody.expiresIn())).build())).toPromise();
         } else {
-          return HttpResponse.ofCode(500).withHtml("""
+          return SecureResponses.secureStatic(HttpResponse.ofCode(500).withHtml("""
           <!DOCTYPE html>
           <html>
             <header>
@@ -302,7 +303,7 @@ public final class App extends Launcher {
             transform: translate(-50%, -50%);
             width: 25vw;
             height: 25vw;
-            border: 0.25rem solid var(--border);
+            border: 0.1vw solid var(--border);
             border-radius: 50%;
             animation: 1s ease-in-out forwards loading;
           }
@@ -336,7 +337,7 @@ public final class App extends Launcher {
 
             </style>
           </html>
-                    """).toPromise();
+                    """)).toPromise();
 
         }
         //System.out.println(responseBody);
@@ -344,7 +345,7 @@ public final class App extends Launcher {
         
         } catch(Exception e) {
           System.err.printf("[\033[31mSEVERE\033[0m] could not send request; %s\n", e.getMessage());
-          return HttpResponse.ofCode(500).withHtml("""
+          return SecureResponses.secureStatic(HttpResponse.ofCode(500).withHtml("""
           <!DOCTYPE html>
           <html>
             <header>
@@ -384,7 +385,7 @@ public final class App extends Launcher {
             transform: translate(-50%, -50%);
             width: 25vw;
             height: 25vw;
-            border: 0.25rem solid var(--border);
+            border: 0.1vw solid var(--border);
             border-radius: 50%;
             animation: 1s ease-in-out forwards loading;
           }
@@ -418,13 +419,26 @@ public final class App extends Launcher {
 
             </style>
           </html>
-                  """).toPromise();
+                  """)).toPromise();
       }
 
     })
-			.with(GET, "/*", request -> HttpResponse.ofCode(404)
-				.withHtml(JStachio.render(new URLNotFound(request.getRelativePath()))).toPromise())
-      .with("/", StaticServlet.builder(reactor, loader).withResponse(() -> HttpResponse.ok200().withHtml("main.html")).build())
+			.with(GET, "/*", request -> SecureResponses.secureStatic(HttpResponse.ofCode(404)
+				.withHtml(JStachio.render(new URLNotFound(request.getRelativePath())))).toPromise())
+                        .with(GET, "/", request -> {
+                            try {
+                              return SecureResponses.secureDynamic(HttpResponse.ok200().withHtml(new String(loader.load("main.html").whenException(e -> System.out.printf("[\033[31mSEVERE\033[0m] could not process request; %s\n", e.getMessage())).getResult().array()))).toPromise();
+                            } catch(Exception e) {
+                              System.out.printf("[\033[31mSEVERE\033[0m] could not process request; %s\n", e.getMessage());
+                              return SecureResponses.secureDynamic(HttpResponse.ofCode(501).withHtml(JStachio.render(new URLNotFound(request.getRelativePath())))).toPromise();
+                            }
+                          }
+                                )
+                        .with(POST, "/callback", request -> {
+                          var result = request.loadBody().map(body -> new String(body.array())).whenException(e -> System.out.printf("[\033[31mSEVERE\033[0m] could not parse body; %s\n", e.getMessage()));
+                          System.out.println("body: " + result.getResult());
+                          return SecureResponses.secureDynamic(HttpResponse.ok200().withJson("{\"status\": \"OK\"}")).toPromise();
+                        })
 			  .build();
 
 	}
@@ -450,13 +464,13 @@ public final class App extends Launcher {
 	@Eager
 	HttpServer server(NioReactor reactor, AsyncServlet servlet, Executor executor) throws NoSuchAlgorithmException {
 		return HttpServer.builder(reactor, servlet)
-      .withListenPort(8080)
+      .withListenPort(80)
 			.build();
 	}
 
 	@Override
 	protected Module getModule() {
-		return ServiceGraphModule.create();
+		return ServiceGraphModule.builder().build();
 	}
 
 	@Override

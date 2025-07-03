@@ -205,7 +205,7 @@
           <plugin>
             <groupId>org.graalvm.buildtools</groupId>
             <artifactId>native-maven-plugin</artifactId>
-            <version>0.9.17</version>
+            <version>0.10.6</version>
             <extensions>true</extensions>
             <executions>
               <execution>
@@ -217,13 +217,14 @@
               </execution>
             </executions>
             <configuration>
-							<mainClass>${main.class}</mainClass>
-              <imageName>main</imageName>
+	      <mainClass>${main.class}</mainClass>
+              <imageName>image</imageName>
               <buildArgs>
                 <buildArg>--no-fallback</buildArg>
                 <buildArg>--allow-incomplete-classpath</buildArg>
-                <buildArg>-H:ReflectionConfigurationFiles=${project.basedir}/config/reflectionconfig.json
-                </buildArg>
+                <!-- <buildArg>-H:ReflectionConfigurationFiles=${project.basedir}/config/reflectionconfig.json -->
+		  <!-- </buildArg> -->
+		<buildArg>--pgo-instrument</buildArg>
               </buildArgs>
             </configuration>
           </plugin>
