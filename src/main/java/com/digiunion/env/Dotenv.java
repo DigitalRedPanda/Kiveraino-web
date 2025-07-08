@@ -15,7 +15,7 @@ public interface Dotenv {
       String data;
       while((data = reader.readLine()) != null) {
         arrayList.add(data.substring(data.indexOf("=") + 1, data.length()));
-        System.out.println(data.substring(data.indexOf("=") + 1, data.length()));
+        //System.out.println(data.substring(data.indexOf("=") + 1, data.length()));
       }
     } 
     return arrayList;

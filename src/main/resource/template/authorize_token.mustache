@@ -1,94 +1,18 @@
 <!DOCTYPE html>
 <html>
-<header>
-<title>Kivarino</title>
-</header>
-<body>
-<div id="container">
-<label class="h">Don't show it on stream!</label><div class="box"><input id="auth" type="password" readonly="" value="{{authToken}};{{refreshToken}}"><button onclick="toggle()" class="btn">*</button></div>
-</div>
-</body>
-<style>
-	:root {
-		--text: #00e701;
-		--background: #0b0e0f; 
-		--border: #474f54
-	}
-	body {
-		background-color: var(--background);
-	}
-  #container {
-    display: flex;
-    flex-direction: column;
-    alignt-content: center;
-    justify-content: center;
-    position: absolute;
-    top:50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-  }
-  .h {
-    text-align: center;
-		font-size: 1.5rem;
-    font-family: 'Inter', sans-serif;		
-		color: var(--text);
-  }
-  .box {
-    align-content: center;
-    justify-content: center;
-    display: flex;
-    flex-direction: row;
-    gap: 0.10rem;
-  }
-
-  .btn {
-		font-size: 1.25rem;
-    font-family: 'Inter', sans-serif;		
-		border-radius: unset;
-		background-color: var(--background);
-		border-color: var(--border);
-		border-width: 0.15rem 0.15rem 0.15rem 0.15rem;
-		color: var(--text);
-    outline: none;
-    transition: border-color 100ms ease-out;
-  }
-
-  .btn:hover {
-    border-color: grey;
-  }
-  .btn:active {
-    border-color: white;
-  }
-	#auth {
-		font-size: 1.25rem;
-    font-family: 'Inter', sans-serif;		
-		border-radius: unset;
-		background-color: var(--background);
-		border-color: var(--border);
-		border-width: 0.15rem 0.15rem 0.15rem 0.15rem;
-		color: var(--text);
-		-webkit-text-stroke-color: var(--text);
-    caret-color: transparent;
-		background: var(--background);
-  }
-	::selection {
-	  background: white;
-
-	}
-  input:focus {
-    outline: none;
-  }
-  </style>
-  <script>
-    function toggle() {
-      const auth = document.getElementById('auth');
-      if(auth.type == "password") {
-        auth.type = "text";
-      } else {
-        auth.type = "password";
-      }
-    }
-  </script>
+  <header>
+    <meta name="description" content="The official authorization portal for Kivarino">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="UTF-8">
+    <title>Kivarino</title>
+    <link rel="preload" href="css/token.css" as="style" onload="this.rel='stylesheet'">
+  </header>
+  <body>
+    <div id="container">
+      <label class="h">Don't show it on stream!</label><div class="box"><input id="auth" type="password" readonly="" value="{{authToken}};{{refreshToken}}"><button onclick="toggle()" class="btn">*</button></div>
+    </div>
+  </body>
+  <script src="/js/toggle.js"></script>
 
 </html>
 

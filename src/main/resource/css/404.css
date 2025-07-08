@@ -1,0 +1,22 @@
+@charset "UTF-8";
+
+:root {
+  --text: #00e701;
+  --background: #0b0e0f;
+  --border: #474f54;
+  color: var(--text);
+}
+body  {
+  font-family: 'Inter', sans-serif;
+  background-color: var(--background);
+}
+
+div {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  align-items: center;
+}

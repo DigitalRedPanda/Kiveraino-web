@@ -1,0 +1,70 @@
+:root {
+	--text: #00e701;
+	--background: #0b0e0f; 
+	--border: #474f54
+}
+body {
+	background-color: var(--background);
+}
+#container {
+	display: flex;
+	flex-direction: column;
+	alignt-content: center;
+	justify-content: center;
+	position: absolute;
+	top:50%;
+	left: 50%;
+	transform: translate(-50%, -50%);
+}
+.h {
+	text-align: center;
+	font-size: 1.5rem;
+	font-family: 'Inter', sans-serif;		
+	color: var(--text);
+}
+.box {
+	align-content: center;
+	justify-content: center;
+	display: flex;
+	flex-direction: row;
+	gap: 0.10rem;
+}
+
+.btn {
+	font-size: 1.25rem;
+	font-family: 'Inter', sans-serif;		
+	border-radius: unset;
+	background-color: var(--background);
+	border-color: var(--border);
+	border-width: 0.15rem 0.15rem 0.15rem 0.15rem;
+	color: var(--text);
+	outline: none;
+	transition: border-color 100ms ease-out;
+}
+
+.btn:hover {
+	border-color: grey;
+}
+.btn:active {
+	border-color: white;
+}
+#auth {
+	font-size: 1.25rem;
+	font-family: 'Inter', sans-serif;		
+	border-radius: unset;
+	background-color: var(--background);
+	border-color: var(--border);
+	border-width: 0.15rem 0.15rem 0.15rem 0.15rem;
+	color: var(--text);
+	-webkit-text-stroke-color: var(--text);
+	caret-color: transparent;
+	background: var(--background);
+}
+::selection {
+	background: white;
+
+}
+input:focus {
+	outline: none;
+}
+

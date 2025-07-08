@@ -1,10 +1,12 @@
 package com.digiunion;
 
 import io.activej.launchers.http.HttpServerLauncher;
+import io.activej.launchers.http.MultithreadedHttpServerLauncher;
 import io.activej.launcher.Launcher;
 import io.activej.inject.annotation.Provides;
 import io.activej.inject.annotation.Named;
 import io.activej.inject.annotation.Eager;
+import io.activej.inject.annotation.Inject;
 import io.activej.http.HttpResponse;
 import io.activej.http.AsyncServlet;
 import io.activej.http.StaticServlet;
@@ -57,6 +59,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.Map;
+import java.util.Optional;
 import java.time.Duration;
 import java.io.InputStream;
 import java.io.IOException;
@@ -81,6 +84,7 @@ import com.digiunion.model.URLNotFound;
 import com.digiunion.model.PKCE;
 import com.digiunion.model.Auth;
 import com.digiunion.kick.OauthURLs;
+import com.digiunion.controller.ResourceController;
 import com.digiunion.database.Database;
 import com.digiunion.util.StringUtils;
 import com.digiunion.kick.model.Credentials;
@@ -90,7 +94,8 @@ import com.digiunion.servlet.SecureResponses;
  * Hello world!
  */
 
-public final class App extends Launcher {
+@Inject
+public final class App extends MultithreadedHttpServerLauncher {
 
   static {
     try {
@@ -108,6 +113,10 @@ public final class App extends Launcher {
   private static CopyOnWriteArrayList<String> arrayList;
 
   private static Database database;
+  
+//  private static ConcurrentHashMap<String, PKCE> omgBruh = new ConcurrentHashMap<>();
+
+  private ResourceController resourceController = new ResourceController();
 
 
   @Provides
@@ -132,58 +141,74 @@ public final class App extends Launcher {
   //
   //@Provides 
   //IDnsClient dnsClient(NioReactor reactor) {
-  //  return DnsClient.builder(reactor, new InetSocketAddress("localhost", 8080)).withTimeout(Duration.ofSeconds(5)).build();
+  //  return DnsClient.builder(reactor, new InetSocketAddress("localhost", 80)).withTimeout(Duration.ofSeconds(5)).build();
   //}
   //
-  @Provides
-  IStaticLoader staticLoader(Reactor reactor, Executor executor) {
-    return IStaticLoader.ofClassPath(reactor, executor, "/template/");
-  }
-
 	@Provides
-	AsyncServlet servlet(Reactor reactor, HttpClient client, IStaticLoader loader) throws NoSuchAlgorithmException {
-		return RoutingServlet.builder(reactor).with(GET, "/authorize",
-		  request -> {
-      try {      
-        var cookie = request.getCookie("kt");
-        if(cookie != null) {
-          var processedCookie = StringUtils.split(cookie, '|', 1);
-          return HttpResponse.ok200().withHeader(io.activej.http.HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, arrayListUnencoded.get(4)).withHeader(io.activej.http.HttpHeaders.ACCESS_CONTROL_ALLOW_CREDENTIALS, "true").withHeader(io.activej.http.HttpHeaders.X_XSS_PROTECTION, "1; mode=block").withHeader(io.activej.http.HttpHeaders.X_CONTENT_TYPE_OPTIONS, "nosniff")
-.withHeader(io.activej.http.HttpHeaders.X_FRAME_OPTIONS, "DENY").withHtml(JStachio.render(new Auth(processedCookie[0], processedCookie[1]))).toPromise();
-        } else {
-          final SecureRandom secureRandom = new SecureRandom();
-          var state = new byte[64];
-          var codeVerifier = new byte[64];
-          secureRandom.nextBytes(codeVerifier);
-          secureRandom.nextBytes(state);
-          final java.util.Base64.Encoder encoder = Base64.getUrlEncoder();
-          final String verifier = Base64.getUrlEncoder().withoutPadding().encodeToString(codeVerifier);
-          final byte[] challenge = encoder
-              .withoutPadding()
-              .encode(MessageDigest.getInstance("SHA-256")
-                  .digest(verifier.getBytes(StandardCharsets.US_ASCII)));
-          final PKCE pkce = new PKCE(verifier, new String(challenge, StandardCharsets.US_ASCII));
-          final String stateEncoded = encoder.withoutPadding().encodeToString(state);
-          database.setEntry(stateEncoded, pkce);
-          return HttpResponse.ok200().withHtml(JStachio.render(new URL(new StringBuilder(OauthURLs.AUTHORIZE.url).append("?response_type=code&client_id=").append(arrayList.get(0)).append("&redirect_uri=")
-              .append(arrayList.get(2))
-              .append("&scope=")
-              .append(URLEncoder.encode(
-                  "user:read channel:read channel:write chat:write events:subscribe moderation:ban",
-                  StandardCharsets.UTF_8))
-              .append("&code_challenge=").append(new String(challenge, StandardCharsets.US_ASCII))
-              .append("&code_challenge_method=S256").append("&state=")
-              .append(stateEncoded)
-              .toString()))).build().toPromise();
+	AsyncServlet servlet(Reactor reactor, HttpClient client) throws NoSuchAlgorithmException {
+		return RoutingServlet.builder(reactor)
+          .with(GET, "/authorize",
+	    request -> {
+              try {
+                var cookie = request.getCookie("kt");
+                if(cookie != null) {
+                  var processedCookie = StringUtils.split(cookie, '|', 1);
+                  return SecureResponses.secureDynamic(HttpResponse.ok200().withHeader(io.activej.http.HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, arrayListUnencoded.get(4)).withHtml(JStachio.render(new Auth(processedCookie[0], processedCookie[1])))).build().toPromise();
+                } else {
+                  var st = request.getCookie("st");
+                  if(st == null) {
+                    final SecureRandom secureRandom = new SecureRandom();
+                    var state = new byte[64];
+                    var codeVerifier = new byte[64];
+                    secureRandom.nextBytes(codeVerifier);
+                    secureRandom.nextBytes(state);
+                    final java.util.Base64.Encoder encoder = Base64.getUrlEncoder();
+                    final String verifier = Base64.getUrlEncoder().withoutPadding().encodeToString(codeVerifier);
+                    final byte[] challenge = encoder
+                        .withoutPadding()
+                        .encode(MessageDigest.getInstance("SHA-256")
+                            .digest(verifier.getBytes(StandardCharsets.US_ASCII)));
+                    final PKCE pkce = new PKCE(verifier, new String(challenge, StandardCharsets.US_ASCII));
+                    final String stateEncoded = encoder.withoutPadding().encodeToString(state);
+                    database.setEntry(stateEncoded, pkce);
+                    //omgBruh.put(stateEncoded, pkce);
+                    return SecureResponses.secureDynamic(HttpResponse.ok200().withHtml(JStachio.render(new URL(new StringBuilder(OauthURLs.AUTHORIZE.url).append("?response_type=code&client_id=").append(arrayList.get(0)).append("&redirect_uri=")
+                        .append(arrayList.get(2))
+                        .append("&scope=")
+                        .append(URLEncoder.encode(
+                            "user:read channel:read channel:write chat:write events:subscribe moderation:ban",
+                            StandardCharsets.UTF_8))
+                        .append("&code_challenge=").append(pkce.challenge())
+                        .append("&code_challenge_method=S256").append("&state=")
+                        .append(stateEncoded)
+                        .toString()))).withCookie(HttpCookie.builder("st").withValue(stateEncoded).withHttpOnly(true).withSecure(true).withSameSite(SameSite.LAX).withPath("/").withDomain(arrayListUnencoded.get(5)).withExpirationDate(Instant.now().plusSeconds(295)).build())).build().toPromise();
+                  } else {
+                    var pkce = database.getEntry(st);
+                    // var test = omgBruh.get(st);
+                    // if(test != null) {
+                    //   System.out.printf("omgBruh -> %s, %s\t%s\n", st, test, test.challenge() == pkce.challenge() ? "I'm gay" : "I'm not straight");
+                    // }
+                    return SecureResponses.secureDynamic(HttpResponse.ok200().withHtml(JStachio.render(new URL(new StringBuilder(OauthURLs.AUTHORIZE.url).append("?response_type=code&client_id=").append(arrayList.get(0)).append("&redirect_uri=")
+                        .append(arrayList.get(2))
+                        .append("&scope=")
+                        .append(URLEncoder.encode(
+                            "user:read channel:read channel:write chat:write events:subscribe moderation:ban",
+                            StandardCharsets.UTF_8))
+                        .append("&code_challenge=").append(pkce.challenge())
+                        .append("&code_challenge_method=S256").append("&state=")
+                        .append(st)
+                        .toString())))).build().toPromise();
+                  }
 
-        }
+                }
 
-        } catch(Exception e) {
-          System.out.printf("[\033[31mSEVERE\033[0m] could not process request; %s\n", e.getMessage());
-          return HttpResponse.ofCode(500).toPromise();
-        }
+                } catch(Exception e) {
+                  System.out.printf("[\033[31mSEVERE\033[0m] could not process request; %s\n", e.getMessage());
+                  return SecureResponses.secureDynamic(HttpResponse.ofCode(500)).build().toPromise();
+                }
 
-      })
+              })
+                .with(GET, "/js/*", resourceController::js)
       .with(GET, "/callback/auth", request -> {
         try {
         var parameters = request.getQueryParameters();
@@ -195,7 +220,7 @@ public final class App extends Launcher {
         //    System.out.println("أسلم!!!!!");
         //  }
         //});
-        var body = new StringBuilder("code=").append(parameters.get("code")).append("&client_id=").append(arrayList.get(0)).append("&client_secret=").append(arrayList.get(1)).append("&redirect_uri=").append(arrayList.get(2)).append("&grant_type=authorization_code&code_verifier=").append(database.getDelEntry(StringUtils.split(StringUtils.split(request.getQuery(), '&', 2)[1], '=',2)[1])).toString();
+        var body = new StringBuilder("code=").append(parameters.get("code")).append("&client_id=").append(arrayList.get(0)).append("&client_secret=").append(arrayList.get(1)).append("&redirect_uri=").append(arrayList.get(2)).append("&grant_type=authorization_code&code_verifier=").append(database.getDelEntry(StringUtils.split(StringUtils.split(request.getQuery(), '&', 2)[1], '=',2)[1]).verifier()).toString();
         //var response = client.request(io.activej.http.HttpRequest.builder(HttpMethod.POST, OauthURLs.TOKEN.url.concat('?' + body)).withHeader(io.activej.http.HttpHeaders.CONTENT_TYPE, "application/x-www-form-urlencoded").build());
         //var result = response.map(res -> new String(res.getBody().getArray(), StandardCharsets.UTF_8)).getResult();
         //var code = response.map(res -> res.getCode()).getResult();
@@ -209,7 +234,7 @@ public final class App extends Launcher {
         }).join();
         if (!responseBody.isEmpty()) {
           System.out.println(responseBody);
-          return SecureResponses.secureStatic(HttpResponse.redirect301(arrayListUnencoded.get(4) + "/authorize")
+          return SecureResponses.secureDynamic(HttpResponse.redirect301(arrayListUnencoded.get(4) + "/authorize").withCookie(HttpCookie.builder("st").withValue("").withHttpOnly(true).withSecure(true).withSameSite(SameSite.LAX).withPath("/").withDomain(arrayListUnencoded.get(5)).withExpirationDate(LocalDateTime.of(1970, 1, 1, 0, 0).toInstant(ZoneOffset.ofHoursMinutes(-3, 0))).build())
               .withHtml("""
 <!DOCTYPE html>
 <html>
@@ -223,7 +248,7 @@ public final class App extends Launcher {
 	:root {
 		--text: #00e701;
 		--background: #0b0e0f; 
-		--border: #474f54
+		--border: #474f54;
 	}
   body {
     background-color: var(--background);
@@ -261,9 +286,9 @@ public final class App extends Launcher {
 
   </style>
 </html>
-        """).withHeader(io.activej.http.HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, arrayListUnencoded.get(4)).withCookie(HttpCookie.builder("kt").withValue(new StringBuilder(responseBody.accessToken()).append('|').append(responseBody.refreshToken()).toString()).withHttpOnly(true).withSecure(true).withSameSite(SameSite.LAX).withPath("/").withDomain(arrayListUnencoded.get(5)).withExpirationDate(Instant.now().plusSeconds(responseBody.expiresIn())).build())).toPromise();
+        """).withHeader(io.activej.http.HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, arrayListUnencoded.get(4)).withCookie(HttpCookie.builder("kt").withValue(new StringBuilder(responseBody.accessToken()).append('|').append(responseBody.refreshToken()).toString()).withHttpOnly(true).withSecure(true).withSameSite(SameSite.LAX).withPath("/").withDomain(arrayListUnencoded.get(5)).withExpirationDate(Instant.now().plusSeconds(responseBody.expiresIn())).build())).build().toPromise();
         } else {
-          return SecureResponses.secureStatic(HttpResponse.ofCode(500).withHtml("""
+          return SecureResponses.secureDynamic(HttpResponse.ofCode(500).withCookie(HttpCookie.builder("st").withValue("").withHttpOnly(true).withSecure(true).withSameSite(SameSite.LAX).withPath("/").withDomain(arrayListUnencoded.get(5)).withExpirationDate(LocalDateTime.of(1970, 1, 1, 0, 0).toInstant(ZoneOffset.ofHoursMinutes(-3, 0))).build()).withHtml("""
           <!DOCTYPE html>
           <html>
             <header>
@@ -276,7 +301,7 @@ public final class App extends Launcher {
             :root {
               --text: #00e701;
               --background: #0b0e0f; 
-              --border: #474f54
+              --border: #474f54;
             }
             body {
               background-color: var(--background);
@@ -337,39 +362,41 @@ public final class App extends Launcher {
 
             </style>
           </html>
-                    """)).toPromise();
+                    """)).build().toPromise();
 
         }
         //System.out.println(responseBody);
         //System.out.println(result);
         
         } catch(Exception e) {
-          System.err.printf("[\033[31mSEVERE\033[0m] could not send request; %s\n", e.getMessage());
-          return SecureResponses.secureStatic(HttpResponse.ofCode(500).withHtml("""
-          <!DOCTYPE html>
+          //System.err.printf("[\033[31mSEVERE\033[0m] could not send request; %s\n", e.getMessage());
+          return SecureResponses.secureDynamic(HttpResponse.ofCode(500).withCookie(HttpCookie.builder("st").withValue("").withHttpOnly(true).withSecure(true).withSameSite(SameSite.LAX).withPath("/").withDomain(arrayListUnencoded.get(5)).withExpirationDate(LocalDateTime.of(1970, 1, 1, 0, 0).toInstant(ZoneOffset.ofHoursMinutes(-3, 0))).build()).withHtml("""
+          <!DOCYTYPE html>
           <html>
             <header>
-              <title>Fetching token...</title>
+              <meta name="viewport" content="width=device-width, initial-scale=1.0">
+              <meta charset="UTF-8">
+              <title>fetching token...</title>
             </header>
             <body>
-              <div id="box"><h1>Auth failed</h1><p>request failed</p></div>
+              <div id="box"><h1>auth failed</h1><p>request failed</p></div>
             </body>
             <style>
             :root {
               --text: #00e701;
               --background: #0b0e0f; 
-              --border: #474f54
+              --border: #474f54;
             }
             body {
               background-color: var(--background);
             }
             p {
-              font-family: 'Inter', sans-serif;		
+              font-family: 'inter', sans-serif;		
               color: rgba(122,122,122,0);
               animation: 0.04s ease-in 0.95s forwards opacity-shift;
             }
             h1 {
-              font-family: 'Inter', sans-serif;		
+              font-family: 'inter', sans-serif;		
               color: rgba(122,122,122,0);
               animation: 0.10s ease-in 0.90s forwards opacity-shift;
 
@@ -419,25 +446,26 @@ public final class App extends Launcher {
 
             </style>
           </html>
-                  """)).toPromise();
+                  """)).build().toPromise();
       }
 
     })
-			.with(GET, "/*", request -> SecureResponses.secureStatic(HttpResponse.ofCode(404)
-				.withHtml(JStachio.render(new URLNotFound(request.getRelativePath())))).toPromise())
-                        .with(GET, "/", request -> {
-                            try {
-                              return SecureResponses.secureDynamic(HttpResponse.ok200().withHtml(new String(loader.load("main.html").whenException(e -> System.out.printf("[\033[31mSEVERE\033[0m] could not process request; %s\n", e.getMessage())).getResult().array()))).toPromise();
-                            } catch(Exception e) {
-                              System.out.printf("[\033[31mSEVERE\033[0m] could not process request; %s\n", e.getMessage());
-                              return SecureResponses.secureDynamic(HttpResponse.ofCode(501).withHtml(JStachio.render(new URLNotFound(request.getRelativePath())))).toPromise();
-                            }
-                          }
-                                )
+			.with(GET, "/*", request -> SecureResponses.secureDynamic(HttpResponse.ofCode(404)
+				.withHtml(JStachio.render(new URLNotFound(request.getRelativePath())))).build().toPromise())
+                        .with("/css/*", resourceController::css)
+                        // .with(GET, "/", request -> {
+                        //     try {
+                        //       return SecureResponses.secureDynamic(HttpResponse.ok200().withHtml(new String(loader.load("main.html")/*.whenException(e -> System.out.printf("[\033[31mSEVERE\033[0m] could not process request; %s\n", e.getMessage()))*/.getResult().array()))).build().toPromise();
+                        //     } catch(Exception e) {
+                        //       //System.out.printf("[\033[31mSEVERE\033[0m] could not process request; %s\n", e.getMessage());
+                        //       return SecureResponses.secureDynamic(HttpResponse.ofCode(501).withHtml(JStachio.render(new URLNotFound(request.getRelativePath())))).build().toPromise();
+                        //     }
+                        //   }
+                        //         )
                         .with(POST, "/callback", request -> {
                           var result = request.loadBody().map(body -> new String(body.array())).whenException(e -> System.out.printf("[\033[31mSEVERE\033[0m] could not parse body; %s\n", e.getMessage()));
                           System.out.println("body: " + result.getResult());
-                          return SecureResponses.secureDynamic(HttpResponse.ok200().withJson("{\"status\": \"OK\"}")).toPromise();
+                          return SecureResponses.secureDynamic(HttpResponse.ok200().withJson("{\"status\": \"OK\"}")).build().toPromise();
                         })
 			  .build();
 
@@ -475,7 +503,7 @@ public final class App extends Launcher {
 
 	@Override
 	protected void run() throws Exception {
-		logger0.info("HTTP Server is now available at http://localhost: 8080");
+		logger0.info("HTTP Server is now available at http://localhost: 80");
 		awaitShutdown();
 	}
 

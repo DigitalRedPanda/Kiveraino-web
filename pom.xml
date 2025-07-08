@@ -128,7 +128,9 @@
 						<version>${io.jstach.version}</version>
 					</path>
                     <!-- other annotation processors -->
-                </annotationProcessorPaths>
+		</annotationProcessorPaths>  
+		<compilerArgs>--enable-preview</compilerArgs>
+
             </configuration>
         </plugin>
         <plugin>
@@ -207,26 +209,29 @@
             <artifactId>native-maven-plugin</artifactId>
             <version>0.10.6</version>
             <extensions>true</extensions>
-            <executions>
-              <execution>
-                <id>build-native</id>
-                <goals>
-                  <goal>build</goal>
-                </goals>
-                <phase>package</phase>
-              </execution>
-            </executions>
-            <configuration>
+	    <executions>
+	      <execution>
+		<id>build-native</id>
+		<goals>
+		  <goal>compile-no-fork</goal>
+		</goals>
+		<phase>package</phase>
+	      </execution>
+	    </executions>
+	    <configuration>
 	      <mainClass>${main.class}</mainClass>
-              <imageName>image</imageName>
-              <buildArgs>
-                <buildArg>--no-fallback</buildArg>
-                <buildArg>--allow-incomplete-classpath</buildArg>
-                <!-- <buildArg>-H:ReflectionConfigurationFiles=${project.basedir}/config/reflectionconfig.json -->
-		  <!-- </buildArg> -->
-		<buildArg>--pgo-instrument</buildArg>
-              </buildArgs>
-            </configuration>
+	      <imageName>image</imageName>
+	      <buildArgs>
+		<buildArg>--no-fallback</buildArg>
+		<buildArg>--allow-incomplete-classpath</buildArg>
+		<buildArg>-H:ReflectionConfigurationFiles=${project.basedir}/META-INF/native-image</buildArg>
+		<buildArg>--pgo</buildArg>
+	      </buildArgs>
+	      <agent>
+		<enabled>true</enabled>
+	      </agent>
+
+	    </configuration>
           </plugin>
         </plugins>
       </build>
