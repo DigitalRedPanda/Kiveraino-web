@@ -9,7 +9,7 @@ body {
 #container {
 	display: flex;
 	flex-direction: column;
-	alignt-content: center;
+	align-content: center;
 	justify-content: center;
 	position: absolute;
 	top:50%;

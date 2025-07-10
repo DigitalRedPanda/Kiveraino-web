@@ -29,5 +29,7 @@ public final class ResourceController {
       System.err.printf("[\033[31mSEVERE\033[0m] omgBruh; %s\n", e.getMessage());
       return SecureResponses.secureDynamic(HttpResponse.ofCode(404)).toPromise();
     }
-}
+  }
+
+  
 }

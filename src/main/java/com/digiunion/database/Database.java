@@ -52,7 +52,6 @@ public final class Database implements AutoCloseable{
       //   System.out.printf("[\033[34mINFO\033[0m] the entry (%s, %s) has been stored\n", state, pkce.verifier());
       // else 
       //   System.out.printf("[\033[34mINFO\033[0m] the entry (%s, %s) has not been stored; %s\n", state, pkce.verifier(), entryState);
-
     }
   }
 

@@ -6,3 +6,4 @@ dependency-reduced-pom.xml
 *.project
 *.factorypath
 *.env
+/META-INF/

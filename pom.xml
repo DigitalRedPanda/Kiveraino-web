@@ -135,7 +135,12 @@
         </plugin>
         <plugin>
           <artifactId>maven-surefire-plugin</artifactId>
-          <version>3.3.0</version>
+	  <version>3.3.0</version>
+	  <configuration>
+        <argLine>
+            --add-modules=jdk.incubator.vector
+        </argLine>
+	  </configuration>
         </plugin>
         <plugin>
           <artifactId>maven-jar-plugin</artifactId>
@@ -146,7 +151,8 @@
               <mainClass>${main.class}</mainClass>
             </manifest>
           </archive>
-        </configuration>
+	  <compilerArgs>--enable-preview --add-modules=jdk.incubator.vector</compilerArgs>
+	</configuration>
         </plugin>
         <plugin>
           <artifactId>maven-install-plugin</artifactId>
