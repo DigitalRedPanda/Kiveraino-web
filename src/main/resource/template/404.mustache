@@ -9,7 +9,23 @@
 			<h1>404 Not Found</h1>
 			<p>{{url}} Does Not Exist</p>
 		</div>
+
 	</body>
+	<style>
+		:root {
+		  --background: #0b0e0f;
+		}
+		body  {
+		  background-color: var(--background);
+		  opacity: 0;
+		  transition: opacity 100ms ease-in;
+		}
+
+		.loaded {
+		  opacity: 1;
+		}
 	</style>
+
+	<script src="/js/fouc-handler.js"></script>
 </html>
 

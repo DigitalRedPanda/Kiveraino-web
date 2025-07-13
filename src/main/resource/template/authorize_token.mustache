@@ -5,7 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta charset="UTF-8">
     <title>Kivarino</title>
-    <link rel="preload" href="css/token.css" as="style" onload="this.rel='stylesheet'">
+   <!--  <link rel="preload" href="css/token.css" as="style" onload="this.rel='stylesheet'"> -->
+    <!-- <link rel="preload" href="css/token.css" as="style" onload="this.onload=null;this.rel='stylesheet'"> -->
+    <link rel="stylesheet" href="css/token.css" media="print" onload="this.media='all'">
+
   </header>
   <body>
     <div id="container">
@@ -13,6 +16,33 @@
     </div>
   </body>
   <script src="/js/toggle.js"></script>
+  <script src="/js/fouc-handler.js"></script>
+	<style>
+:root {
+  --background: #0b0e0f;
+}
+                body  {
+                  background-color: var(--background);
+                  opacity: 0;
+                  transition: opacity 100ms ease-in;
+
+                }
+                /*#container {
+                  opacity: 0;
+                  transition: opacity 100ms ease-in;
+                }*/
+                .loaded {
+                  opacity: 1;
+                }
+		body > * {
+		  visibility: hidden;
+		}
+		.loaded > * {
+		  visibility: visible;
+		}
+
+
+	</style>
 
 </html>
 

@@ -5,12 +5,40 @@
 		<meta name="viewport" content="width=device-width, initial-scale=1.0">
 		<meta charset="UTF-8">
 		<title>Kivarino</title>
-		<link rel="preload" href="css/main.css" as="style" onload="this.rel='stylesheet'">
+	<!-- 	<link rel="preload" href="css/main.css" as="style" onload="this.rel='stylesheet'"> -->
+		<link rel="preload" href="css/main.css" as="style" onload="this.onload=null;this.rel='stylesheet'">
+
 
 	</header>
 	<body>
 		<button onclick="location.href='{{url}}'" class="auth">Authorize</button>
 	</body>
+	<style>
+		:root {
+		  --background: #0b0e0f;
+		}
+                       body  {
+                  background-color: var(--background);
+                  opacity: 0;
+                  transition: opacity 100ms ease-in;
 
+                }
+
+
+                .loaded {
+                  opacity: 1;
+                }
+		@supports (-moz-appearance:none) {
+			body > * {
+			  visibility: hidden;
+			}
+
+			.loaded > * {
+			  visibility: visible;
+			}
+		}
+
+	</style>
+	<script src="/js/fouc-handler.js"></script>
 </html>
 

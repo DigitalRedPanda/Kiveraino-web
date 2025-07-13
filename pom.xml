@@ -129,7 +129,7 @@
 					</path>
                     <!-- other annotation processors -->
 		</annotationProcessorPaths>  
-		<compilerArgs>--enable-preview</compilerArgs>
+		<!--compilerArgs> \-\-add-modules=jdk.incubator.vector</compilerArgs-->
 
             </configuration>
         </plugin>
@@ -137,9 +137,9 @@
           <artifactId>maven-surefire-plugin</artifactId>
 	  <version>3.3.0</version>
 	  <configuration>
-        <argLine>
-            --add-modules=jdk.incubator.vector
-        </argLine>
+	    <!-- <argLine> -->
+	    <!--   \-\-add-modules=jdk.incubator.vector -->
+     <!--    </argLine> -->
 	  </configuration>
         </plugin>
         <plugin>
@@ -151,7 +151,7 @@
               <mainClass>${main.class}</mainClass>
             </manifest>
           </archive>
-	  <compilerArgs>--enable-preview --add-modules=jdk.incubator.vector</compilerArgs>
+	  <!-- <compilerArgs>\-\-enable-preview \-\-add-modules=jdk.incubator.vector</compilerArgs> -->
 	</configuration>
         </plugin>
         <plugin>

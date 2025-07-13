@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.digiunion.env.Dotenv;
 import com.digiunion.model.PKCE;
+import com.digiunion.service.SecurityService;
 import com.digiunion.servlet.SecureResponses;
 import com.digiunion.util.StringUtils;
 
@@ -15,6 +16,7 @@ import io.activej.http.HttpMethod;
 import io.activej.http.HttpRequest;
 import io.activej.http.HttpResponse;
 import io.activej.http.HttpServer;
+import io.activej.bytebuf.ByteBuf;
 import io.activej.dns.DnsClient;
 import io.activej.inject.annotation.Provides;
 import io.activej.promise.Promise;
@@ -26,6 +28,7 @@ import io.activej.eventloop.Eventloop;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CopyOnWriteArraySet;
+import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -38,11 +41,12 @@ import java.util.concurrent.CompletableFuture;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
+import java.security.interfaces.RSAPublicKey;
 import java.time.Duration;
 import java.time.Instant;
 
 import org.junit.jupiter.api.Test;
-import org.simdjson.SimdJsonParser;
+//import org.simdjson.SimdJsonParser;
 
 /**
  * Unit test for simple App.
@@ -170,6 +174,8 @@ public class AppTest {
     @Test
     public void actualPublicKeyParsingTestNoJokefr(){
     var keyTest = "-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAq/+l1WnlRrGSolDMA+A8\n6rAhMbQGmQ2SapVcGM3zq8ANXjnhDWocMqfWcTd95btDydITa10kDvHzw9WQOqp2\nMZI7ZyrfzJuz5nhTPCiJwTwnEtWft7nV14BYRDHvlfqPUaZ+1KR4OCaO/wWIk/rQ\nL/TjY0M70gse8rlBkbo2a8rKhu69RQTRsoaf4DVhDPEeSeI5jVrRDGAMGL3cGuyY\n6CLKGdjVEM78g3JfYOvDU/RvfqD7L89TZ3iN94jrmWdGz34JNlEI5hqK8dd7C5EF\nBEbZ5jgB8s8ReQV8H+MkuffjdAj3ajDDX3DOJMIut1lBrUVD1AaSrGCKHooWoL2e\ntwIDAQAB\n-----END PUBLIC KEY-----";
+    var service = new SecurityService();
+    assert keyTest.indexOf("-----BEGIN PUBLIC KEY-----\n") == service.indexOf(keyTest.getBytes(), "-----BEGIN PUBLIC KEY-----\n".getBytes(), 0);
     var partiallyParsed = split(keyTest, '\n');
     var custom = new StringBuilder();
     
@@ -178,7 +184,9 @@ public class AppTest {
     }
     var customy = String.valueOf(custom).getBytes();
     System.out.println(new String(Base64.getDecoder().decode(customy), StandardCharsets.UTF_8));
-
+    var key = service.readX509PublicKey(ByteBuf.wrapForReading(keyTest.getBytes(StandardCharsets.UTF_8)));
+    System.out.println(key.getResult().toString());
+    
       // SimdJsonParser parser = new SimdJsonParser();
       // parser.parse
     }
@@ -199,4 +207,46 @@ public class AppTest {
     //   }
     //
     // }
+    //
+    @Test
+    public void aTestToMakeMeInsane() {
+      var service = new SecurityService();
+      var actualExample = "gsdgsdmgklsdjgtasldsdklf;sdkf";
+      var actualExpTst = "djgt";
+      var example = actualExample.getBytes();
+      var exptst = actualExpTst.getBytes();
+      System.out.printf("%d == %d ?\n", service.indexOf(example, "djgt".getBytes(), 0), new String(example, StandardCharsets.US_ASCII).indexOf("djgt"));
+      assert new String(example, StandardCharsets.US_ASCII).indexOf("djgt") == service.indexOf(example, "djgt".getBytes(), 0);
+      assert new String(example, StandardCharsets.US_ASCII).indexOf("dmgklsd") == service.indexOf(example, "dmgklsd".getBytes(), 0);
+      var aAvg = 0d;
+      var bAvg = 0d;
+      var cAvg = 0d;
+      var dAvg = 0d;
+      var times = 1000000l;
+      for (long i = 0; i < times; i++) {
+        var start = Instant.now();
+        var a = service.indexOf(example, exptst, 0);
+        var end = Instant.now();
+        a = 0;
+        aAvg += ((double) Duration.between(start, end).toNanos()) / Math.pow(10, 6);
+        start = Instant.now();
+        var b = actualExample.indexOf(actualExpTst);
+        end = Instant.now();
+        b = 0;
+        bAvg += ((double) Duration.between(start, end).toNanos()) / Math.pow(10, 6);
+        // start = Instant.now();
+        // var c = service.indexOfSimd(example, exptst);
+        // end = Instant.now();
+        //c = 0;
+        cAvg += ((double) Duration.between(start, end).toNanos()) / Math.pow(10, 6);
+        start = Instant.now();
+        var d = service.indexOfOpt(example, exptst);
+        end = Instant.now();
+        d = 0;
+        dAvg += ((double) Duration.between(start, end).toNanos()) / Math.pow(10, 6);
+       
+      }
+      System.out.printf("a: %fms\nb: %fms\nc: %fms\nd: %fms\n", aAvg / times, bAvg / times, cAvg / times, dAvg / times);
+      //assert service.indexOfSimd(example, exptst) == actualExample.indexOf(actualExpTst);
+    }
 }

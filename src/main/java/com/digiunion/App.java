@@ -2,6 +2,7 @@ package com.digiunion;
 
 import io.activej.launchers.http.HttpServerLauncher;
 import io.activej.launchers.http.MultithreadedHttpServerLauncher;
+import io.activej.promise.Promise;
 import io.activej.launcher.Launcher;
 import io.activej.inject.annotation.Provides;
 import io.activej.inject.annotation.Named;
@@ -15,6 +16,7 @@ import io.activej.http.HttpServer;
 import io.activej.http.HttpCookie;
 import io.activej.http.IHttpClient;
 import io.activej.dns.IDnsClient;
+import io.activej.bytebuf.ByteBuf;
 import io.activej.dns.DnsClient;
 import io.activej.reactor.Reactor;
 import io.activej.inject.Injector;
@@ -35,6 +37,7 @@ import io.activej.http.HttpCookie.SameSite;
 import com.alibaba.fastjson2.JSON;
 
 import java.security.SecureRandom;
+import java.security.interfaces.RSAPublicKey;
 import java.security.KeyStore;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -52,6 +55,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpRequest.BodyPublishers;
 import java.net.http.HttpHeaders;
 import java.net.http.HttpResponse.BodyHandlers;
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Paths;
 import java.nio.file.Files;
@@ -81,6 +85,8 @@ import org.simdjson.SimdJsonParser;
 import com.digiunion.env.Dotenv;
 import com.digiunion.model.URL;
 import com.digiunion.model.URLNotFound;
+import com.digiunion.service.ResourceService;
+import com.digiunion.service.SecurityService;
 import com.digiunion.model.PKCE;
 import com.digiunion.model.Auth;
 import com.digiunion.kick.OauthURLs;
@@ -112,6 +118,7 @@ public final class App extends MultithreadedHttpServerLauncher {
 
   private static Database database;
 
+  private static RSAPublicKey publicKey;
 
   public App() throws IOException {
     arrayListUnencoded = Dotenv.load("/creds/creds.env");
@@ -119,13 +126,20 @@ public final class App extends MultithreadedHttpServerLauncher {
     for (int i = 0; i < arrayList.length; i++) {
       arrayList[i] = URLEncoder.encode(arrayListUnencoded[i], StandardCharsets.US_ASCII);
     }
+    publicKey = Promise.of(ByteBuf.wrapForReading("-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAq/+l1WnlRrGSolDMA+A8\n6rAhMbQGmQ2SapVcGM3zq8ANXjnhDWocMqfWcTd95btDydITa10kDvHzw9WQOqp2\nMZI7ZyrfzJuz5nhTPCiJwTwnEtWft7nV14BYRDHvlfqPUaZ+1KR4OCaO/wWIk/rQ\nL/TjY0M70gse8rlBkbo2a8rKhu69RQTRsoaf4DVhDPEeSeI5jVrRDGAMGL3cGuyY\n6CLKGdjVEM78g3JfYOvDU/RvfqD7L89TZ3iN94jrmWdGz34JNlEI5hqK8dd7C5EF\nBEbZ5jgB8s8ReQV8H+MkuffjdAj3ajDDX3DOJMIut1lBrUVD1AaSrGCKHooWoL2e\ntwIDAQAB\n-----END PUBLIC KEY-----".getBytes(StandardCharsets.UTF_8))) 
+        .then(securityService::readX509PublicKey).whenException(e -> {
+          System.err.printf("[\033[31mSEVERE\033[0m] could not parse public key; %s\t%s\n", e.getCause(), e.getMessage());
+        }).getResult(); 
+
   }
   
 //  private static ConcurrentHashMap<String, PKCE> omgBruh = new ConcurrentHashMap<>();
 
   private ResourceController resourceController = new ResourceController();
+  private final SecurityService securityService = new SecurityService();
 
   public static final Executor EXECUTOR = Executors.newVirtualThreadPerTaskExecutor();
+  public static final NioReactor REACTOR = Eventloop.create();
 
   @Provides
   Executor executor() {
@@ -134,9 +148,9 @@ public final class App extends MultithreadedHttpServerLauncher {
 
 	// @Provides
 	// NioReactor reactor() {
-	// 	return Eventloop.create();
+	// 	return REACTOR;
 	// }
-
+	//
   @Provides
   HttpClient client(Executor executor) throws NoSuchAlgorithmException {
     return HttpClient.newBuilder().executor(executor).sslContext(SSLContext.getDefault()).version(Version.HTTP_2).build();
@@ -471,12 +485,14 @@ public final class App extends MultithreadedHttpServerLauncher {
                         //   }
                         //         )
                         .with(POST, "/callback", request -> {
-                          var result = request.loadBody().map(body -> {
-                            var signiture = new StringBuilder(request.getHeader(io.activej.http.HttpHeaders.of("Kick-Event-Message-Id"))).append('.').append(request.getHeader(io.activej.http.HttpHeaders.of("Kick-Event-Message-Timestamp"))).append('.').append(body.asString(StandardCharsets.UTF_8));
-                            System.out.println(signiture);
+                          request.loadBody().map(body -> {
+
+                            var bdy = String.format("%s.%s.%s", request.getHeader(io.activej.http.HttpHeaders.of("Kick-Event-Message-Id")), request.getHeader(io.activej.http.HttpHeaders.of("Kick-Event-Message-Timestamp")), body.asString(StandardCharsets.UTF_8));
+                            //System.out.println(body.asString(StandardCharsets.UTF_8)); 
+                            System.out.printf("validity: %b\n", securityService.verify(publicKey, bdy.getBytes(StandardCharsets.UTF_8), request.getHeader(io.activej.http.HttpHeaders.of("Kick-Event-Signature")).getBytes(StandardCharsets.UTF_8)).getResult());
+                            System.out.println("body: " + body.asString(StandardCharsets.UTF_8));
                             return new String(body.array());
-                          }).whenException(e -> System.out.printf("[\033[31mSEVERE\033[0m] could not parse body; %s\n", e.getMessage()));
-                          System.out.println("body: " + result.getResult());
+                          }).whenException(e -> System.out.printf("[\033[31mSEVERE\033[0m] could not parse body; %s\n%s\n", e.getMessage(), Arrays.stream(e.getStackTrace()).map(a -> String.format("%s: %s\n", a.getClassName(), a.getLineNumber())).collect(Collectors.toList())));
                           return SecureResponses.secureDynamic(HttpResponse.ok200().withJson("{\"status\": \"OK\"}")).build().toPromise();
                         })
 			  .build();

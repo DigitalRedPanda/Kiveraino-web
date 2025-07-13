@@ -10,7 +10,7 @@ public interface SecureResponses {
    * @see HttpResponse
    */
   public static HttpResponse.Builder secureStatic(HttpResponse.Builder response) {
-    return response.withHeader(HttpHeaders.REFERRER_POLICY, "Referrer-Policy: origin-when-cross-origin")
+    return response.withHeader(HttpHeaders.REFERRER_POLICY, "origin")
         .withHeader(HttpHeaders.CONTENT_SECURITY_POLICY, "default-src 'self'; script-src 'self'; style-src 'self'; object-src 'none'")
         .withHeader(HttpHeaders.X_CONTENT_TYPE_OPTIONS, "nosniff")
         .withHeader(HttpHeaders.PERMISSIONS_POLICY, "geolocation=(), microphone=(), camera=()")
@@ -30,7 +30,7 @@ public interface SecureResponses {
    */
 
   public static HttpResponse.Builder secureDynamic(HttpResponse.Builder response) {
-    return response.withHeader(HttpHeaders.REFERRER_POLICY, "Referrer-Policy: origin-when-cross-origin")
+    return response.withHeader(HttpHeaders.REFERRER_POLICY, "origin-when-cross-origin")
         .withHeader(HttpHeaders.CONTENT_SECURITY_POLICY, "default-src 'self';script-src 'self' 'unsafe-inline';style-src 'self' 'unsafe-inline';img-src 'self' data: https:;font-src 'self';object-src 'none'")
         .withHeader(HttpHeaders.X_CONTENT_TYPE_OPTIONS, "nosniff")
         .withHeader(HttpHeaders.X_FRAME_OPTIONS, "DENY")        
