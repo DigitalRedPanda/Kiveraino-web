@@ -16,7 +16,8 @@
 		<maven.compiler.release>21</maven.compiler.release>
 		<io.jstach.version>1.3.7</io.jstach.version>
 		<main.class>com.digiunion.App</main.class>
-		<io.activej.version>6.0-rc2</io.activej.version>
+		<io.activej.version>6.0-rc2</io.activej.version>        
+		<bouncycastle.version>1.77</bouncycastle.version>
 
   </properties>
   <dependencyManagement>
@@ -87,6 +88,19 @@
       <groupId>com.alibaba.fastjson2</groupId>
       <artifactId>fastjson2</artifactId>
       <version>2.0.57</version>
+    </dependency>
+
+    <dependency>
+        <groupId>org.bouncycastle</groupId>
+        <artifactId>bcpkix-jdk18on</artifactId>
+        <version>1.77</version>
+    </dependency>
+
+    <!-- Java Security -->
+    <dependency>
+        <groupId>org.bouncycastle</groupId>
+        <artifactId>bcprov-jdk18on</artifactId>
+        <version>1.77</version>
     </dependency>
 	</dependencies>
 

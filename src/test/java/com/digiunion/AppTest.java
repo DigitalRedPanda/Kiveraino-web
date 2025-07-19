@@ -2,7 +2,9 @@ package com.digiunion;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.alibaba.fastjson2.JSON;
 import com.digiunion.env.Dotenv;
+import com.digiunion.kick.model.KickChatEvent;
 import com.digiunion.model.PKCE;
 import com.digiunion.service.SecurityService;
 import com.digiunion.servlet.SecureResponses;
@@ -249,4 +251,67 @@ public class AppTest {
       System.out.printf("a: %fms\nb: %fms\nc: %fms\nd: %fms\n", aAvg / times, bAvg / times, cAvg / times, dAvg / times);
       //assert service.indexOfSimd(example, exptst) == actualExample.indexOf(actualExpTst);
     }
+
+@Test 
+public void parseTest() {
+  var payload = """
+{
+  "message_id": "unique_message_id_123",
+  "broadcaster": {
+    "is_anonymous": false,
+    "user_id": 123456789,
+    "username": "broadcaster_name",
+    "is_verified": true,
+    "profile_picture": "https://example.com/broadcaster_avatar.jpg",
+    "channel_slug": "broadcaster_channel",
+    "identity": null 
+  },
+  "sender": {
+    "is_anonymous": false,
+    "user_id": 987654321,
+    "username": "sender_name",
+    "is_verified": false,
+    "profile_picture": "https://example.com/sender_avatar.jpg",
+    "channel_slug": "sender_channel",
+    "identity": {
+      "username_color": "#FF5733",
+      "badges": [
+        {
+          "text": "Moderator",
+          "type": "moderator",
+        },
+        {
+          "text": "Sub Gifter",
+          "type": "sub_gifter",
+          "count": 5,
+        },
+        {
+          "text": "Subscriber",
+          "type": "subscriber",
+          "count": 3,
+        }
+      ]
+    }
+  },
+  "content": "This is a test message with emotes!",
+  "emotes": [
+    {
+      "emote_id": "12345",
+      "positions": [
+        { "s": 0, "e": 7 }
+      ]
+    },
+    {
+      "emote_id": "67890",
+      "positions": [
+        { "s": 20, "e": 25 }
+      ]
+    }
+  ]
 }
+    """;
+    System.out.println(JSON.parseObject(payload,KickChatEvent.class));
+
+}
+}
+

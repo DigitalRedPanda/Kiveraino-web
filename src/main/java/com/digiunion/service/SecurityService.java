@@ -1,5 +1,6 @@
 package com.digiunion.service;
 
+import java.io.StringReader;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.security.InvalidKeyException;
@@ -13,6 +14,9 @@ import java.security.spec.InvalidKeySpecException;
 import java.security.spec.X509EncodedKeySpec;
 import java.util.Base64;
 
+import org.bouncycastle.util.io.pem.PemObject;
+import org.bouncycastle.util.io.pem.PemReader;
+
 import com.digiunion.App;
 
 import io.activej.bytebuf.ByteBuf;
@@ -21,7 +25,7 @@ import io.activej.promise.Promise;
 
 public final class SecurityService {
 
-    private static final String PEM_BEGIN = "-----BEGIN PUBLIC KEY-----";
+    private static final String PEM_HEADER = "-----BEGIN PUBLIC KEY-----";
 
     private static final String PEM_FOOTER = "-----END PUBLIC KEY-----";
 
@@ -34,32 +38,50 @@ public final class SecurityService {
     //     System.out.println(temp);
     // }
 
-    public Promise<RSAPublicKey> readX509PublicKey(final ByteBuf publicKey) {
+ public Promise<RSAPublicKey> readX509PublicKey(final ByteBuf publicKey) {
         try {
-            final String tmp = publicKey.asString(StandardCharsets.UTF_8);
-            final int headerIndex = tmp.indexOf(PEM_BEGIN) + PEM_BEGIN.length();
-            final int footerIndex = tmp.indexOf(PEM_FOOTER, headerIndex);
-            //System.out.printf("(%d:%s,%d:%s)", );
-            final byte[] encoded = Base64.getDecoder().decode(tmp.substring(headerIndex, footerIndex).replaceAll(System.lineSeparator(), ""));
-            final X509EncodedKeySpec x509 = new X509EncodedKeySpec(encoded);
-            return Promise.of((RSAPublicKey) KeyFactory.getInstance("RSA").generatePublic(x509));
-        } catch(NoSuchAlgorithmException | InvalidKeySpecException e) {
-            return Promise.ofException(e);
+            String pubKey = publicKey.asString(StandardCharsets.UTF_8);
+            final int headerIndex = pubKey.indexOf(PEM_HEADER);
+            final int footerIndex = pubKey.indexOf(PEM_FOOTER);
+            pubKey = pubKey.replace(PEM_HEADER, "")
+                .replace(PEM_FOOTER, "")
+                .replaceAll("[\n\r]", "");
+;
+            final byte[] decodedPub = Base64.getDecoder().decode(pubKey);
+            return Promise.of((RSAPublicKey) KeyFactory.getInstance("RSA")
+                .generatePublic(new X509EncodedKeySpec(decodedPub)));
+        } catch(Exception e) {
+            return Promise.ofException(new InvalidKeySpecException("Key parsing failed", e));
         }
     }
 
-    public Promise<Boolean> verify(RSAPublicKey publicKey, byte[] data, byte[] signature) {
-        return Promise.ofBlocking(App.EXECUTOR,() -> {
-            var decodedSignatureBytes = Base64.getDecoder().decode(signature);
-            var hashed = MessageDigest.getInstance("SHA256").digest(data);
-            var signatureInstance = Signature.getInstance("SHA256withRSA");
-            signatureInstance.initVerify(publicKey);
-            signatureInstance.update(hashed);
-            return signatureInstance.verify(decodedSignatureBytes);
-        });
-    }
+    public Promise<Boolean> verify(RSAPublicKey publicKey, String messageId, 
+                                 String timestamp, String body, String signatureHeader) {
+        return Promise.ofBlocking(App.EXECUTOR, () -> {
+            try {
+                String signedPayload = String.format("%s.%s.%s",messageId, timestamp, body);
+                byte[] payloadBytes = signedPayload.getBytes(StandardCharsets.UTF_8);
+                
+                byte[] signatureBytes = Base64.getDecoder().decode(signatureHeader);
+                MessageDigest digest = MessageDigest.getInstance("SHA-256");
+                byte[] hashed = digest.digest(payloadBytes);
+                Signature verifier = Signature.getInstance("SHA256withRSA");
+                verifier.initVerify(publicKey);
+                System.out.printf("""
+public key: %s
 
-    public int indexOf(byte[] first, byte[] second, int index) {
+hashedSignature: %s
+
+signature: %s
+
+                        """, publicKey.toString(), new String(hashed, StandardCharsets.UTF_8), new String(signatureBytes, StandardCharsets.UTF_8));
+                verifier.update(hashed);
+                return verifier.verify(signatureBytes);
+            } catch (Exception e) {
+                throw new RuntimeException("Verification failed", e);
+            }
+        });
+    }    public int indexOf(byte[] first, byte[] second, int index) {
         var beginningIndex = index;
         for (int i = beginningIndex; i < first.length; i++) {
             boolean found = true;

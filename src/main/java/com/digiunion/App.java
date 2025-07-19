@@ -11,10 +11,15 @@ import io.activej.inject.annotation.Inject;
 import io.activej.http.HttpResponse;
 import io.activej.http.AsyncServlet;
 import io.activej.http.StaticServlet;
+import io.activej.http.WebSocket;
+import io.activej.http.WebSocketConstants;
+import io.activej.http.WebSocketException;
+import io.activej.http.WebSocketServlet;
 import io.activej.http.RoutingServlet;
 import io.activej.http.HttpServer;
 import io.activej.http.HttpCookie;
 import io.activej.http.IHttpClient;
+import io.activej.http.IWebSocket;
 import io.activej.dns.IDnsClient;
 import io.activej.bytebuf.ByteBuf;
 import io.activej.dns.DnsClient;
@@ -32,7 +37,8 @@ import io.activej.eventloop.Eventloop;
 import io.activej.http.loader.CacheStaticLoader;
 import io.activej.http.loader.IStaticLoader;
 import io.activej.http.HttpCookie.SameSite;
-
+import io.activej.http.IWebSocket.Message;
+import io.activej.http.IWebSocket.Message.MessageType;
 
 import com.alibaba.fastjson2.JSON;
 
@@ -65,6 +71,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.time.Duration;
 import java.io.InputStream;
 import java.io.IOException;
@@ -94,6 +101,7 @@ import com.digiunion.controller.ResourceController;
 import com.digiunion.database.Database;
 import com.digiunion.util.StringUtils;
 import com.digiunion.kick.model.Credentials;
+import com.digiunion.kick.model.KickChatEvent;
 import com.digiunion.servlet.SecureResponses;
 
 /**
@@ -119,6 +127,7 @@ public final class App extends MultithreadedHttpServerLauncher {
   private static Database database;
 
   private static RSAPublicKey publicKey;
+  private final Set<IWebSocket> connections = ConcurrentHashMap.newKeySet();
 
   public App() throws IOException {
     arrayListUnencoded = Dotenv.load("/creds/creds.env");
@@ -486,16 +495,121 @@ public final class App extends MultithreadedHttpServerLauncher {
                         //         )
                         .with(POST, "/callback", request -> {
                           request.loadBody().map(body -> {
+                          //
+                          //   //System.out.println(body.asString(StandardCharsets.UTF_8)); 
+                          //   System.out.printf("validity: %b\n", securityService.verify(publicKey, request.getHeader(io.activej.http.HttpHeaders.of("Kick-Event-Message-Id")), body.asString(StandardCharsets.UTF_8),request.getHeader(io.activej.http.HttpHeaders.of("Kick-Event-Message-Timestamp")), request.getHeader(io.activej.http.HttpHeaders.of("Kick-Event-Signature"))).getResult());
+                          //   System.out.println("body: " + body.asString(StandardCharsets.UTF_8));
+                          //   return new String(body.array());
+                          // }).whenException(e -> System.out.printf("[\033[31mSEVERE\033[0m] could not parse body; %s\n%s\n", e.getMessage(), Arrays.stream(e.getStackTrace()).map(a -> String.format("%s: %s\n", a.getClassName(), a.getLineNumber())).collect(Collectors.toList())));
+                          // return SecureResponses.secureDynamic(HttpResponse.ok200().withJson("{\"status\": \"OK\"}")).build().toPromise();
+                          // 
+                          String messageId = request.getHeader(io.activej.http.HttpHeaders.of("Kick-Event-Message-Id"));
+                          String timestamp = request.getHeader(io.activej.http.HttpHeaders.of("Kick-Event-Message-Timestamp"));
+                          String signature = request.getHeader(io.activej.http.HttpHeaders.of("Kick-Event-Signature"));
+                          String bodyStr = body.asString(StandardCharsets.UTF_8);
 
-                            var bdy = String.format("%s.%s.%s", request.getHeader(io.activej.http.HttpHeaders.of("Kick-Event-Message-Id")), request.getHeader(io.activej.http.HttpHeaders.of("Kick-Event-Message-Timestamp")), body.asString(StandardCharsets.UTF_8));
-                            //System.out.println(body.asString(StandardCharsets.UTF_8)); 
-                            System.out.printf("validity: %b\n", securityService.verify(publicKey, bdy.getBytes(StandardCharsets.UTF_8), request.getHeader(io.activej.http.HttpHeaders.of("Kick-Event-Signature")).getBytes(StandardCharsets.UTF_8)).getResult());
-                            System.out.println("body: " + body.asString(StandardCharsets.UTF_8));
-                            return new String(body.array());
-                          }).whenException(e -> System.out.printf("[\033[31mSEVERE\033[0m] could not parse body; %s\n%s\n", e.getMessage(), Arrays.stream(e.getStackTrace()).map(a -> String.format("%s: %s\n", a.getClassName(), a.getLineNumber())).collect(Collectors.toList())));
-                          return SecureResponses.secureDynamic(HttpResponse.ok200().withJson("{\"status\": \"OK\"}")).build().toPromise();
-                        })
-			  .build();
+                          securityService.verify(publicKey, messageId, timestamp, bodyStr, signature)
+                            .whenResult(valid -> {
+                              System.out.printf("event: %s", JSON.parseObject(bodyStr, KickChatEvent.class));
+                              client.newWebSocketBuilder().buildAsync(URI.create("kivarino.xyz/events"), null);
+                              /* client.newWebSocketBuilder(); */
+                              System.out.printf("Validation result: %b\n", valid);
+                            })
+                            .whenException(e -> System.err.println("Verification error: " + e.getMessage()));
+                            return true;
+                        });
+                        return SecureResponses.secureDynamic(HttpResponse.ok200().withJson("{\"status\": \"OK\"}")).build().toPromise();
+        })
+        .withWebSocket("/events", webSocket -> {
+          connections.add(webSocket);
+          System.out.println("New connection. Total: " + connections.size());
+          webSocket.readMessage()
+            .then(message -> {
+                String msg = message.getText();
+                for (IWebSocket conn : connections) {
+                  if (!conn.equals(webSocket)) {
+                    conn.writeMessage(Message.text(msg));
+                  }
+                }
+              return Promise.complete();
+            })
+          .then(() -> webSocket.writeMessage(Message.text("Welcome to the chat!")));
+            // .loop(($, e) -> {
+            //   if (e == null) {
+            //     return Promise.complete()
+            //       .then(() -> webSocket.readMessage())
+            //       .then(message -> {
+            //         if (message instanceof Text text) {
+            //           String msg = text.getText();
+            //           System.out.println("Received: " + msg);
+            //
+            //           for (WebSocket conn : connections) {
+            //             if (conn != webSocket) {
+            //               conn.writeMessage(Message.text(msg));
+            //             }
+            //           }
+            //         }
+            //         return Promise.complete();
+            //       })
+            //   } else {
+            //     // Connection closed or error occurred
+            //     connections.remove(webSocket);
+            //     System.out.println("Connection closed. Total: " + connections.size());
+            //     return Promise.complete();
+            //   }
+            // });
+            //
+            // while (true) {
+            //   var promise = webSocket.readMessage().then(msg -> {
+            //     for (var con : connections) {
+            //       con.writeMessage(msg);
+            //     };
+            //     return Promise.complete();
+            //   });
+            //   promise.getResult();
+            // }
+          /*
+
+          try{
+          // websocket.readFrame().then($ -> {
+          //   System.out.printf("content: %s\ntype: %s\n", $.getPayload().asString(StandardCharsets.UTF_8), $.getType().toString());
+          //
+          //   return null;
+          // });
+          websocket.readMessage().then(msg -> {
+            if (msg != null) {
+              var message = msg.getText();
+              System.out.printf("content: %s\ntype: %s\n", message, msg.getType().toString());
+            } else {
+              System.out.println("lmao");
+            }
+            return websocket.writeMessage(Message.text("Lmao."));
+          }).whenResult($ -> {
+          // switch (msg.getText()) {
+          //   case "اه":
+          //     break;
+          //   default:
+          //     websocket.writeMessage(Message.text("")).whenResult(a -> {}).whenException();
+          // }
+        }).whenComplete(() -> {
+            System.out.println("sent");
+          }).whenException(e -> {
+          switch (e) {
+            case WebSocketException webSocketException -> {
+              System.out.printf("[\033[31mSEVERE\033[0m] Signal received; %s", e.getCause(), e.getMessage());
+            }
+
+            default -> {
+              System.out.printf("[\033[31mSEVERE\033[0m] Unknown signal received; %s\t%s\n", e.getCause(), e.getMessage());
+              Arrays.stream(e.getStackTrace()).forEach(stackTrace -> System.out.printf("%s\n", stackTrace.toString()));
+            }
+          }
+        });
+          } catch(Exception e ){
+            System.out.printf("like, kys; %s; %s\n", e.getCause(), e.getMessage());
+          }*/
+        })
+        .build();
 
 	}
 
