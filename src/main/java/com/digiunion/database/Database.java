@@ -35,13 +35,18 @@ public final class Database implements AutoCloseable{
 
   public PKCE getEntry(String state){
     try(final Jedis jedis = jedisPool.getResource()) {
-      final String[] temp = StringUtils.split(jedis.get(state),' ', 1);
-      final PKCE entry = new PKCE(temp[0], temp[1]);
+      final String entryTemp = jedis.get(state);
+      if(entryTemp != null) {
+        final String[] temp = StringUtils.split(jedis.get(state),' ', 1);
+        final PKCE entry = new PKCE(temp[0], temp[1]);
+        return entry;
+      } else {
+        return new PKCE(null, null);
+      }
       // if(!entry.isEmpty())
       //   System.out.printf("[\033[34mINFO\033[0m] the entry %s has been retrieved\n", state);
       // else 
       //   System.out.printf("[\033[34mINFO\033[0m] the entry %s has not been retrieved; %s\n", state, entry);
-      return entry;
     }
   } 
 

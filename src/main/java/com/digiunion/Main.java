@@ -85,8 +85,8 @@ public final class Main {
 
   public static void main(String[] args) throws IOException, InterruptedException, ExecutionException, NoSuchAlgorithmException {
     //NioReactor reactor = Eventloop.create(); 
-     var reactor = Eventloop.create(); 
-    var client = HttpClient.builder(reactor, DnsClient.create(reactor, new InetSocketAddress("8.8.8.8", 53))).withSslEnabled(SSLContext.getInstance("TLS1.3"), executor).build();
+    var reactor = Eventloop.create(); 
+    var client = HttpClient.builder(reactor, DnsClient.create(reactor, new InetSocketAddress("1.1.1.1", 53))).withSslEnabled(SSLContext.getDefault(), executor).build();
     // 
     // var client = HttpClient.builder(eventloop, DnsClient.create(eventloop, new InetSocketAddress("localhost", 443))).withSslEnabled(SSLContext.getDefault(), executor).build();
     CompletableFuture<String> future = reactor.submit(() ->

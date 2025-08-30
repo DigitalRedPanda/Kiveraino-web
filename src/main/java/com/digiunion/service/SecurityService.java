@@ -59,13 +59,13 @@ public final class SecurityService {
                                  String timestamp, String body, String signatureHeader) {
         return Promise.ofBlocking(App.EXECUTOR, () -> {
             try {
-                String signedPayload = String.format("%s.%s.%s",messageId, timestamp, body);
-                byte[] payloadBytes = signedPayload.getBytes(StandardCharsets.UTF_8);
+                final String signedPayload = new StringBuilder(messageId).append('.').append(timestamp).append('.').append(body).toString();
+                final byte[] payloadBytes = signedPayload.getBytes(StandardCharsets.UTF_8);
                 
-                byte[] signatureBytes = Base64.getDecoder().decode(signatureHeader);
-                MessageDigest digest = MessageDigest.getInstance("SHA-256");
-                byte[] hashed = digest.digest(payloadBytes);
-                Signature verifier = Signature.getInstance("SHA256withRSA");
+                final byte[] signatureBytes = Base64.getDecoder().decode(signatureHeader);
+                final MessageDigest digest = MessageDigest.getInstance("SHA-256");
+                final byte[] hashed = digest.digest(payloadBytes);
+                var verifier = Signature.getInstance("SHA256withRSA");
                 verifier.initVerify(publicKey);
                 System.out.printf("""
 public key: %s
