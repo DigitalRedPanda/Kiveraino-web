@@ -212,11 +212,29 @@
 		      </transformers>
 		    </configuration> 
 
-		  </execution>
-		</executions>
-	      </plugin>
+		    </execution>
+		  </executions>
+	  </plugin>
 
-      </plugins>
+    <plugin>
+      <groupId>org.graalvm.buildtools</groupId>
+      <artifactId>native-maven-plugin</artifactId>
+      <version>0.10.5</version>
+      <extensions>true</extensions>
+      <executions>
+        <execution>
+          <id>build-native</id>
+          <goals>
+            <goal>compile-no-fork</goal>
+            </goals>
+          <phase>package</phase>
+          </execution>
+        </executions>
+      <configuration>
+        <mainClass>${main.class}</mainClass>
+        </configuration>
+      </plugin>
+  </plugins>
 </build>
 
   <profiles>

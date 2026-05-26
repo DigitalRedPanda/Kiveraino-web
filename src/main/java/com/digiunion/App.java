@@ -21,6 +21,7 @@ import io.activej.http.IHttpClient;
 import io.activej.http.IWebSocket;
 import io.activej.http.IWebSocketClient;
 import io.activej.dns.IDnsClient;
+import io.activej.csp.consumer.ChannelConsumers;
 import io.activej.bytebuf.ByteBuf;
 import io.activej.dns.DnsClient;
 import io.activej.reactor.nio.NioReactor;
@@ -120,16 +121,20 @@ public final class App extends MultithreadedHttpServerLauncher {
   private static Database database;
 
   private static RSAPublicKey publicKey;
-  private final Map<IWebSocket, Client> connections = new ConcurrentHashMap<>();
-  private final Map<String, HashSet<Client>>  channels = new ConcurrentHashMap<>();
+
+  private final Map<IWebSocket, Long> pendingAuth = new ConcurrentHashMap<>();
+  
+  private final Map<Long, Long> pendingPing = new ConcurrentHashMap<>();
+
+  private final Map<IWebSocket, Long> connectionsIDs = new ConcurrentHashMap<>();
+
+  private final Map<Long, Client> IDsConnections = new ConcurrentHashMap<>();
+
+  private final Map<String, Set<Long>>  channelsIDs = new ConcurrentHashMap<>();
 
   public App() throws IOException {
     try {
-      kickClient = new KickClient();
-    } catch(NoSuchAlgorithmException e) {
-      System.err.println("[\033[31mSEVERE\033[0m] could not start client; " + e.getMessage());
-      System.exit(1);
-    }
+    
     arrayListUnencoded = Dotenv.load("/creds/creds.env");
     arrayList = new String[arrayListUnencoded.length];
     for (int i = 0; i < arrayList.length; i++) {
@@ -140,8 +145,12 @@ public final class App extends MultithreadedHttpServerLauncher {
           System.err.printf("[\033[31mSEVERE\033[0m] could not parse public key; %s\t%s\n", e.getCause(), e.getMessage());
         }).getResult(); 
 
+    kickClient = new KickClient(arrayListUnencoded);
+  } catch(NoSuchAlgorithmException e) {
+      System.err.println("[\033[31mSEVERE\033[0m] could not start client; " + e.getMessage());
+      System.exit(1);
+    }
   }
-  
 //  private static ConcurrentHashMap<String, PKCE> omgBruh = new ConcurrentHashMap<>();
 
   private static final ResourceController resourceController = new ResourceController();
@@ -191,6 +200,8 @@ public final class App extends MultithreadedHttpServerLauncher {
         if(request.getHeader(HttpHeaders.AUTHORIZATION).equals(arrayListUnencoded[6])) {
           try {
             webSocketClient = wsClient(client);
+            
+            System.out.println("[\033[34mINFO\033[0m] websocketClient has been initialized successfully");
             return SecureResponses.secureDynamic(HttpResponse.ok201()).toPromise();
           } catch(Exception e) {
             System.out.printf("[\033[31mSEVERE\033[0m] could not initiate websocketClient; %s\n", e.getMessage());
@@ -300,7 +311,11 @@ public final class App extends MultithreadedHttpServerLauncher {
           // reactor.run();
           // var response = responseBody.get(10, TimeUnit.SECONDS);
           var response = httpClient.sendAsync(java.net.http.HttpRequest.newBuilder(URI.create(OauthURLs.TOKEN.url)).POST(BodyPublishers.ofString(body)).header("Content-Type", "application/x-www-form-urlencoded").build(), BodyHandlers.ofString())
-            .thenApply(res -> JSON.parseObject(res.body(), Credentials.class)).get(10, TimeUnit.SECONDS);
+            .thenApply(res -> {
+          System.out.printf("[\033[31mINFO\033[0m] request body: %s\n", res.body());
+          return JSON.parseObject(res.body(), Credentials.class);
+
+        }).get(10, TimeUnit.SECONDS);
 
           if (!response.isEmpty()) {
             //System.out.println(responseBody);
@@ -534,7 +549,7 @@ height: 25vw;
 //         )
 .with(POST, "/callback", request -> {
 
-  request.loadBody().map(body -> {
+  return request.loadBody().then(body -> {
     //
     //   //System.out.println(body.asString(StandardCharsets.UTF_8)); 
     //   System.out.printf("validity: %b\n", securityService.verify(publicKey, request.getHeader(HttpHeaders.of("Kick-Event-Message-Id")), body.asString(StandardCharsets.UTF_8),request.getHeader(io.activej.http.HttpHeaders.of("Kick-Event-Message-Timestamp")), request.getHeader(io.activej.http.HttpHeaders.of("Kick-Event-Signature"))).getResult());
@@ -547,51 +562,148 @@ height: 25vw;
     String timestamp = request.getHeader(HttpHeaders.of("Kick-Event-Message-Timestamp"));
     String signature = request.getHeader(HttpHeaders.of("Kick-Event-Signature"));
     String bodyStr = body.asString(StandardCharsets.UTF_8);
-
+    if(request.getHeader(HttpHeaders.of("Kick-Event-Type")).equals("chat.message.sent")){
     securityService.verify(publicKey, messageId, timestamp, bodyStr, signature)
       .whenResult(valid -> {
+        if(valid) {
         var event = JSON.parseObject(bodyStr, KickChatEvent.class);
-        var chatters = channels.get(event.broadcaster().username());
-        for (Client chatter: chatters) {
-          chatter.webSocket().writeMessage(Message.text(bodyStr))
-            .whenException(e -> System.err.printf("[\033[31mSEVERE\033[0m] could not send message to %s; %s\n", chatter.nickName(), e.getMessage()));
+        var chatters = channelsIDs.get(event.broadcaster().username());
+        if(chatters != null) {
+          for (Long chatter: chatters) {
+            var currentChatter = IDsConnections.get(chatter);
+            currentChatter.webSocket.writeMessage(Message.text(bodyStr))
+              .whenException(e -> System.err.printf("[\033[31mSEVERE\033[0m] could not send message to %s; %s\n", currentChatter.nickName, e.getMessage()));
+          }
         }
-        System.out.printf("event: %s\n", event);
+        System.out.printf("event: (%s %s): %s\n", event.broadcaster().username(), event.sender().username(), event.content());
+        } 
         System.out.printf("Validation result: %b\n", valid);
       })
     .whenException(e -> System.err.println("Verification error: " + e.getMessage()));
-    return true;
+        }
+    return SecureResponses.secureDynamic(HttpResponse.ok200().withJson("{\"status\": \"OK\"}")).build().toPromise();
 });
-return SecureResponses.secureDynamic(HttpResponse.ok200().withJson("{\"status\": \"OK\"}")).build().toPromise();
 })
 .withWebSocket("/events", webSocket -> {
-
   var headers = webSocket.getResponse().getHeaders().stream().map(header -> String.format("%s: %s\n", header.getKey(), header.getValue())).reduce("", (first, second) -> first + second);
   System.out.printf("new connection: \n%s", headers);
-  webSocket.readMessage().then(msg -> {
-    final String[] message = msg.getText().split(" ", 1);
-    switch(message[0]) {
-      case "PASS" -> {
-        final String[] oauth = message[1].split(":", 1);
-        if(oauth[0].equals("oauth") && oauth.length == 2) {
-          var tokenIntrospection = kickClient.validateToken(oauth[1]).get(5, TimeUnit.SECONDS);
-          if(tokenIntrospection.data().active()) {
+webSocket.messageReadChannel()
+    .streamTo(ChannelConsumers.ofAsyncConsumer(msg -> {
+        Message msgg = (Message) msg;
+        final String[] message = msgg.getText().split(" ", 2);
+        System.out.printf("[\033[34mINFO\033[0m] %s\n", msgg.getText());
 
-          }
-          return Promise.complete();
-        }
-      }
+        return switch (message[0]) {
+            case "PASS" -> {
+                System.out.printf("[\033[34mINFO\033[0m] registering %s\n", message[1]);
+                final String[] oauth = message[1].split(":", 2);
+                Promise<Void> authPromise = Promise.complete();
+                if (oauth[0].equals("oauth") && oauth.length == 2) {
+                    var token = oauth[1];
+                    authPromise = Promise.ofFuture(kickClient.validateToken(token))
+                        .then(tokenIntrospection -> {
+                            if (tokenIntrospection.data().active()) {
+                                System.out.printf("[\033[34mINFO\033[0m] token active; %s\n", token);
+                                return Promise.ofFuture(kickClient.getUserByToken(token))
+                                    .whenResult(user -> {
+                                        long id = user.data()[0].userId();
+                                        System.out.printf("[\033[34mINFO\033[0m] userid for token %s is %d\n", token, id);
+                                        pendingAuth.put(webSocket, id);
+                                        Promises.delay(Duration.ofSeconds(60))
+                                            .whenResult(() -> {
+                                                if (pendingAuth.remove(webSocket) != null) {
+                                                    webSocket.writeMessage(Message.text("TIMEOUT: timeout reached"));
+                                                }
+                                            });
+                                    });
+                            } else {
+                                return Promise.ofException(
+                                    new RuntimeException("Invalid token"));
+                            }
+                        })
+                        .whenException(e -> System.err.printf(
+                            "[\033[31mERROR\033[0m] PASS failed: %s%n", e.getMessage()))
+                        .toVoid();
+                }
+                yield authPromise;
+            }
 
-      case "NICK" -> {
+            case "NICK" -> {
+                System.out.printf("[\033[34mINFO\033[0m] retrieving connection\n");
+                var id = pendingAuth.remove(webSocket);
+                if (id != null) {
+                    System.out.printf("[\033[34mINFO\033[0m] connection of id %d has been retrieved\n", id);
+                    connectionsIDs.put(webSocket, id);
+                    IDsConnections.put(id, new Client(message[1], null, null, null, webSocket));
+                }
+                yield Promise.complete();
+            }
 
-      }
-      default -> {}
+            case "JOIN" -> {
+    Promise<Void> joinPromise = Promise.complete();
+    if (connectionsIDs.get(webSocket) != null) {
+        System.out.printf("[\033[34mINFO\033[0m] received message %s\n",
+            message[1].isBlank() || message[1].isEmpty() ? "Empty" : message[1]);
+        joinPromise = Promise.ofBlocking(App.EXECUTOR, () -> {
+            String channelName = message[1];
+            Set<Long> subscribers = channelsIDs.computeIfAbsent(channelName, k -> {
+                try {
+                    System.out.println("hi");
+                    var channel = kickClient.getChannelByLogin(k)
+                        .get(5, TimeUnit.SECONDS);
+                    System.out.println("اه");
+                    if (channel != null) {
+                        var response = kickClient.postEventSubscriptions(
+                            Long.toString(channel.broadcasterUserId()))
+                            .get(5, TimeUnit.SECONDS);
+                        System.out.println(response.body());
+                        System.out.println("اه اه");
+                        if (response.statusCode() >= 200 && response.statusCode() < 300) {
+                            return ConcurrentHashMap.newKeySet();
+                        }
+                    }
+                } catch (TimeoutException | InterruptedException | ExecutionException e) {
+                    System.err.printf("[\033[31mERROR\033[0m] error sending request; %s\n", e.getMessage());
+                } catch (IOException e) {
+                    System.err.printf("[\033[31mERROR\033[0m]");
+                }
+                return null;
+            });
+
+            if (subscribers != null) {
+                subscribers.add(connectionsIDs.get(webSocket));
+                System.out.printf("[\033[34mINFO\033[0m] channel %s subscribers:\n", channelName);
+                for(Long id : subscribers)  {
+                      System.out.printf("[\033[34mINFO\033[0m] (%d, %s)\n", id, IDsConnections.get(id).nickName);
+                }
+            }
+        });
     }
-    return Promise.complete();
-  }).whenComplete(() -> {
-    System.out.println("finished lmao");
-  });
-//   String name = webSocket.readMessage().map(msg -> {
+    yield joinPromise;
+}
+
+            case "PART" -> {
+                yield Promise.complete();
+            }
+
+            default -> Promise.complete();
+        };
+    }))
+    .whenResult(() -> {
+        System.out.println("[\033[35mCONFUSED\033[0m] scrajj");
+    })
+    .whenException(e -> {
+        e.printStackTrace();
+        connectionsIDs.remove(webSocket);
+        System.out.println("[\033[35mCONFUSED\033[0m] huh");
+    })
+    .whenComplete(() -> {
+        var connectionId = connectionsIDs.remove(webSocket);
+        IDsConnections.remove(connectionId);
+        pendingAuth.remove(webSocket);
+        System.out.println("[\033[35mCONFUSED\033[0m] okay...");
+    });
+      //   String name = webSocket.readMessage().map(msg -> {
 //     final String[] currentMsg = msg.getText().split(" ");
 //     Thread.sleep(5);
 //     if(currentMsg[0].equals("PASS")) {
@@ -794,6 +906,39 @@ Arrays.stream(e.getStackTrace()).forEach(stackTrace -> System.out.printf("%s\n",
 System.out.printf("like, kys; %s; %s\n", e.getCause(), e.getMessage());
 }
 })*/
+.with("/asd", request -> {
+    try {
+        String myIP = HttpClient.newHttpClient().send(
+            java.net.http.HttpRequest.newBuilder().uri(URI.create("https://api.ipify.org")).build(),
+            BodyHandlers.ofString()).body();
+        
+        String host = URI.create(APIURLs.CHANNELS.url).getHost();
+        String resolvedIP = java.net.InetAddress.getByName(host).getHostAddress();
+        
+        String url = APIURLs.CHANNELS.url + "?slug=1dzo";
+        java.net.http.HttpRequest requestt = java.net.http.HttpRequest.newBuilder()
+            .uri(URI.create(url))
+            .header("Authorization", "Bearer " + arrayListUnencoded[6])
+            .header("Content-Type", "application/x-www-form-urlencoded")
+            .GET()
+            .build();
+            
+        java.net.http.HttpResponse<String> response = java.net.http.HttpClient.newHttpClient().send(requestt, BodyHandlers.ofString());
+        
+        System.out.printf("[\033[35mCOMPARISON\033[0m] Environment: %s%n", 
+            System.getenv("ENV") != null ? System.getenv("ENV") : "unknown");
+        System.out.printf("[\033[35mCOMPARISON\033[0m] My IP: %s%n", myIP);
+        System.out.printf("[\033[35mCOMPARISON\033[0m] Resolved %s -> %s%n", host, resolvedIP);
+        System.out.printf("[\033[35mCOMPARISON\033[0m] Kick Response: %d - %s%n", 
+            response.statusCode(), response.body());
+        var channel = kickClient.getChannelByLogin("1dzo").join();
+        System.out.printf("[\033[35mCOMPARISON\033[0m] Kick Response: %s\n", channel);
+        return SecureResponses.secureDynamic(HttpResponse.ok200()).toPromise();
+    } catch (Exception e) {
+        System.out.printf("[\033[31mCOMPARISON FAILED\033[0m] %s%n", e.getMessage());
+        return SecureResponses.secureDynamic(HttpResponse.ofCode(501)).toPromise();
+    }
+    })
 .build();
 
 }

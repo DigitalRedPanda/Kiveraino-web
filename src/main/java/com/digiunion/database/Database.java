@@ -6,6 +6,9 @@ import io.valkey.JedisPoolConfig;
 
 import java.util.Optional;
 
+import io.activej.http.WebSocket;
+import io.activej.http.HttpHeaders;
+
 import com.digiunion.model.PKCE;
 import com.digiunion.util.StringUtils;
 
@@ -30,6 +33,26 @@ public final class Database implements AutoCloseable{
       // else 
       //   System.out.printf("[\033[34mINFO\033[0m] the entry %s has not been retrieved; %s\n", state, entry);
       return entry;
+    }
+  }
+  public void storeToken(long id,String token){
+    try(final Jedis jedis = jedisPool.getResource()) {
+      // if(!entry.isEmpty())
+      //   System.out.printf("[\033[34mINFO\033[0m] the entry %s has been retrieved\n", state);
+      // else 
+      //   System.out.printf("[\033[34mINFO\033[0m] the entry %s has not been retrieved; %s\n", state, entry);
+      System.out.printf("[\033[34mINFO\033[0m] the entry (%d, %s) has been stored\n", id, token);
+      jedis.setex(Long.toString(id), 60,token);
+    }
+  }
+  public void getToken(WebSocket webSocket){
+    try(final Jedis jedis = jedisPool.getResource()) {
+      // if(!entry.isEmpty())
+      //   System.out.printf("[\033[34mINFO\033[0m] the entry %s has been retrieved\n", state);
+      // else 
+      //   System.out.printf("[\033[34mINFO\033[0m] the entry %s has not been retrieved; %s\n", state, entry);
+      var id = webSocket.getResponse().getHeader(HttpHeaders.of("Sec-WebSocket-Accept"));
+      System.out.printf("[\033[34mINFO\033[0m] the entry (%s, %s) has been retrieved\n", id, jedis.getDel(id));
     }
   }
 

@@ -4,8 +4,9 @@ public enum OauthURLs {
   BASE_URL("https://id.kick.com/"),
   OAUTH(BASE_URL.url + "oauth/"),
   AUTHORIZE(OAUTH.url + "authorize"),
-  TOKEN(OAUTH.url + "token");
-  
+  TOKEN(OAUTH.url + "token"),
+  INTROSPECT_TOKEN(OAUTH.url + "token/introspect");
+ 
   public final String url;
 
   OauthURLs(String url) {

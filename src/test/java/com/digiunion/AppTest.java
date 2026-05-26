@@ -5,10 +5,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.alibaba.fastjson2.JSON;
 import com.digiunion.env.Dotenv;
 import com.digiunion.kick.model.KickChatEvent;
+import com.digiunion.kick.KickClient;
 import com.digiunion.model.PKCE;
 import com.digiunion.service.SecurityService;
 import com.digiunion.servlet.SecureResponses;
 import com.digiunion.util.StringUtils;
+import com.digiunion.kick.APIURLs;
 
 import io.activej.http.HttpClient;
 import io.activej.http.HttpHeaders;
@@ -31,6 +33,9 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.ExecutionException;
 import java.util.stream.Collectors;
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -43,9 +48,11 @@ import java.util.concurrent.CompletableFuture;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
+import java.security.NoSuchAlgorithmException;
 import java.security.interfaces.RSAPublicKey;
 import java.time.Duration;
 import java.time.Instant;
+import java.net.URI;
 
 import org.junit.jupiter.api.Test;
 //import org.simdjson.SimdJsonParser;
@@ -313,5 +320,60 @@ public void parseTest() {
     System.out.println(JSON.parseObject(payload,KickChatEvent.class));
 
 }
+  @Test
+  void kickClientTest() throws NoSuchAlgorithmException, TimeoutException, ExecutionException, InterruptedException, IOException {
+    String[] arrayListUnencoded = Dotenv.load("/creds/creds.env");
+    System.out.printf("t: %s\n", arrayListUnencoded[6]);
+    var kickClient = new KickClient(arrayListUnencoded);
+    var channel = kickClient.getChannelByLogin("1dzo").get(5, TimeUnit.SECONDS);
+    // var kickClient = java.net.http.HttpClient.newBuilder().build();
+    var body = kickClient.validateToken(arrayListUnencoded[6]).get();
+    // var parsed = JSON.parseObject(body)
+    //   .getJSONArray("data")
+    //   .getJSONObject(0);
+    // var channel = JSON.parseObject(parsed.toJSONString(), com.digiunion.kick.model.Channel.class); 
+    //var channel = response.thenApply(res ->  JSON.parseObject(res.body(), com.digiunion.kick.model.Channel.class)).get();
+    System.out.printf("dzo: %s\n", channel.slug());
+    System.out.printf("body: %s\n", body);
+    assert channel.slug() != null;
+  }
+
+@Test
+public void simultaneousComparison() {
+    try {
+        String[] creds = Dotenv.load("/creds/creds.env");
+        // 1. Check external IP
+        String myIP = java.net.http.HttpClient.newHttpClient().send(
+            java.net.http.HttpRequest.newBuilder().uri(java.net.URI.create("https://api.ipify.org")).build(),
+            java.net.http.HttpResponse.BodyHandlers.ofString()).body();
+        
+        // 2. Check DNS resolution
+        String host = java.net.URI.create(com.digiunion.kick.APIURLs.CHANNELS.url).getHost();
+        String resolvedIP = java.net.InetAddress.getByName(host).getHostAddress();
+        
+        // 3. Make the exact same Kick request
+        String url = com.digiunion.kick.APIURLs.CHANNELS.url + "?slug=1dzo";
+        java.net.http.HttpRequest request = java.net.http.HttpRequest.newBuilder()
+            .uri(java.net.URI.create(url))
+            .header("Authorization", "Bearer " + creds[6])
+            .header("Content-Type", "application/x-www-form-urlencoded")
+            .GET()
+            .build();
+            
+        java.net.http.HttpResponse<String> response = java.net.http.HttpClient.newHttpClient().send(request, java.net.http.HttpResponse.BodyHandlers.ofString());
+        
+        System.out.printf("[\033[35mCOMPARISON\033[0m] Environment: %s%n", 
+            System.getenv("ENV") != null ? System.getenv("ENV") : "unknown");
+        System.out.printf("[\033[35mCOMPARISON\033[0m] My IP: %s%n", myIP);
+        System.out.printf("[\033[35mCOMPARISON\033[0m] Resolved %s -> %s%n", host, resolvedIP);
+        System.out.printf("[\033[35mCOMPARISON\033[0m] Kick Response: %d - %s%n", 
+            response.statusCode(), response.body());
+            
+    } catch (Exception e) {
+        System.out.printf("[\033[31mCOMPARISON FAILED\033[0m] %s%n", e.getMessage());
+    }
 }
+
+}
+
 

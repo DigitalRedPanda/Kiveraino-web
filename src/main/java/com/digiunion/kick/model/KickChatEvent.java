@@ -3,8 +3,6 @@ package com.digiunion.kick.model;
 
 import java.util.List;
 
-import org.jetbrains.annotations.Nullable;
-
 import com.alibaba.fastjson2.annotation.JSONField;
 
 
@@ -43,7 +41,7 @@ public record KickChatEvent(
             int end
             ) {}  
     public record EventHeaders(
-            String eventType,  // Maps to "Kick-Event-Type"
-            String version     // Maps to "Kick-Event-Version"
+            String eventType,  
+            String version     
             ) {}
         }

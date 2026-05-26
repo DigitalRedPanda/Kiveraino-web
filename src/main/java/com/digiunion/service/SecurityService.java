@@ -25,6 +25,7 @@ import io.activej.promise.Promise;
 
 public final class SecurityService {
 
+    private static Base64.Decoder decoder = Base64.getDecoder();
     private static final String PEM_HEADER = "-----BEGIN PUBLIC KEY-----";
 
     private static final String PEM_FOOTER = "-----END PUBLIC KEY-----";
@@ -47,7 +48,7 @@ public final class SecurityService {
                 .replace(PEM_FOOTER, "")
                 .replaceAll("[\n\r]", "");
 ;
-            final byte[] decodedPub = Base64.getDecoder().decode(pubKey);
+            final byte[] decodedPub = decoder.decode(pubKey);
             return Promise.of((RSAPublicKey) KeyFactory.getInstance("RSA")
                 .generatePublic(new X509EncodedKeySpec(decodedPub)));
         } catch(Exception e) {
@@ -62,20 +63,18 @@ public final class SecurityService {
                 final String signedPayload = new StringBuilder(messageId).append('.').append(timestamp).append('.').append(body).toString();
                 final byte[] payloadBytes = signedPayload.getBytes(StandardCharsets.UTF_8);
                 
-                final byte[] signatureBytes = Base64.getDecoder().decode(signatureHeader);
-                final MessageDigest digest = MessageDigest.getInstance("SHA-256");
-                final byte[] hashed = digest.digest(payloadBytes);
+                final byte[] signatureBytes = decoder.decode(signatureHeader);
                 var verifier = Signature.getInstance("SHA256withRSA");
                 verifier.initVerify(publicKey);
-                System.out.printf("""
+                /*System.out.printf("""
 public key: %s
 
 hashedSignature: %s
 
 signature: %s
 
-                        """, publicKey.toString(), new String(hashed, StandardCharsets.UTF_8), new String(signatureBytes, StandardCharsets.UTF_8));
-                verifier.update(hashed);
+                        """, publicKey.toString(), new String(payloadBytes, StandardCharsets.UTF_8), new String(signatureBytes, StandardCharsets.UTF_8));*/
+                verifier.update(payloadBytes);
                 return verifier.verify(signatureBytes);
             } catch (Exception e) {
                 throw new RuntimeException("Verification failed", e);
