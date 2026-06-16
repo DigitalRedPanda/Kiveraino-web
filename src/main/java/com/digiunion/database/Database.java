@@ -41,7 +41,7 @@ public final class Database implements AutoCloseable{
       //   System.out.printf("[\033[34mINFO\033[0m] the entry %s has been retrieved\n", state);
       // else 
       //   System.out.printf("[\033[34mINFO\033[0m] the entry %s has not been retrieved; %s\n", state, entry);
-      System.out.printf("[\033[34mINFO\033[0m] the entry (%d, %s) has been stored\n", id, token);
+      //System.out.printf("[\033[34mINFO\033[0m] the entry (%d, %s) has been stored\n", id, token);
       jedis.setex(Long.toString(id), 60,token);
     }
   }
@@ -52,7 +52,7 @@ public final class Database implements AutoCloseable{
       // else 
       //   System.out.printf("[\033[34mINFO\033[0m] the entry %s has not been retrieved; %s\n", state, entry);
       var id = webSocket.getResponse().getHeader(HttpHeaders.of("Sec-WebSocket-Accept"));
-      System.out.printf("[\033[34mINFO\033[0m] the entry (%s, %s) has been retrieved\n", id, jedis.getDel(id));
+      //System.out.printf("[\033[34mINFO\033[0m] the entry (%s, %s) has been retrieved\n", id, jedis.getDel(id));
     }
   }
 

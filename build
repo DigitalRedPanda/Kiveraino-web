@@ -4,18 +4,18 @@
 
 case $1 in
   "package")
-    mvn clean package
+    /home/drp/.local/share/maven/bin/mvn clean package
     ;;
   "test")
-    mvn clean test 
+    /home/drp/.local/share/maven/bin/mvn clean test 
     ;;
   "run")
-    mvn clean package
+    /home/drp/.local/share/maven/bin/mvn clean package
     sudo java -jar target/Kivarino-Web-1.0-SNAPSHOT-shaded.jar 
     ;;
   "compile")
-    mvn clean package
-    native-image -O3 -jar target/Kivarino-Web-1.0-SNAPSHOT-shaded.jar 
+    /home/drp/.local/share/maven/bin/mvn clean package
+    /home/drp/.local/share/graalvm-jdk-25+37.1/bin/native-image -O3 -jar target/Kivarino-Web-1.0-SNAPSHOT-shaded.jar 
     ;;
   *)
     printf "unsupported command; %s\n" $1

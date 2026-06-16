@@ -323,7 +323,7 @@ public void parseTest() {
   @Test
   void kickClientTest() throws NoSuchAlgorithmException, TimeoutException, ExecutionException, InterruptedException, IOException {
     String[] arrayListUnencoded = Dotenv.load("/creds/creds.env");
-    System.out.printf("t: %s\n", arrayListUnencoded[6]);
+    //System.out.printf("t: %s\n", arrayListUnencoded[6]);
     var kickClient = new KickClient(arrayListUnencoded);
     var channel = kickClient.getChannelByLogin("1dzo").get(5, TimeUnit.SECONDS);
     // var kickClient = java.net.http.HttpClient.newBuilder().build();

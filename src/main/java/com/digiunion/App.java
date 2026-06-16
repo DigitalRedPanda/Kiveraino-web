@@ -32,6 +32,7 @@ import io.activej.http.HttpCookie.SameSite;
 import io.activej.http.IWebSocket.Message;
 
 import com.alibaba.fastjson2.JSON;
+import com.alibaba.fastjson2.JSONObject;
 
 import java.security.SecureRandom;
 import java.security.interfaces.RSAPublicKey;
@@ -61,6 +62,7 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CompletableFuture;
 import java.util.Map;
 import java.util.Set;
 import java.time.Duration;
@@ -85,6 +87,7 @@ import com.digiunion.model.Client;
 import com.digiunion.kick.APIURLs;
 import com.digiunion.kick.KickClient;
 import com.digiunion.kick.OauthURLs;
+import com.digiunion.kick.model.Token;
 import com.digiunion.controller.AuthController;
 import com.digiunion.controller.ResourceController;
 import com.digiunion.database.Database;
@@ -94,6 +97,7 @@ import com.digiunion.kick.model.Credentials;
 import com.digiunion.kick.model.KickChatEvent;
 import com.digiunion.kick.model.TokenIntrospection;
 import com.digiunion.kick.model.User;
+import com.digiunion.kick.model.SubscriptionResponse;
 import com.digiunion.servlet.SecureResponses;
 
 /**
@@ -105,13 +109,13 @@ public final class App extends MultithreadedHttpServerLauncher {
 
   static {
     //try {
-      database = new Database();
-     //}*/ /*catch(IOException e) {
+    database = new Database();
+    //}*/ /*catch(IOException e) {
     //   System.err.println("[\033[31mSEVERE\033[0m] could not find/open credentials file; " + e.getMessage());
     // }*/
 
   }
-	
+
   public static String[] arrayListUnencoded;
 
   private static KickClient kickClient;
@@ -123,35 +127,35 @@ public final class App extends MultithreadedHttpServerLauncher {
   private static RSAPublicKey publicKey;
 
   private final Map<IWebSocket, Long> pendingAuth = new ConcurrentHashMap<>();
-  
-  private final Map<Long, Long> pendingPing = new ConcurrentHashMap<>();
 
   private final Map<IWebSocket, Long> connectionsIDs = new ConcurrentHashMap<>();
 
   private final Map<Long, Client> IDsConnections = new ConcurrentHashMap<>();
 
-  private final Map<String, Set<Long>>  channelsIDs = new ConcurrentHashMap<>();
+  private final Map<Long, Set<Long>>  channelsIDs = new ConcurrentHashMap<>();
+
+  private final Set<Long> pendingGarbage = ConcurrentHashMap.newKeySet();
 
   public App() throws IOException {
     try {
-    
-    arrayListUnencoded = Dotenv.load("/creds/creds.env");
-    arrayList = new String[arrayListUnencoded.length];
-    for (int i = 0; i < arrayList.length; i++) {
-      arrayList[i] = URLEncoder.encode(arrayListUnencoded[i], StandardCharsets.US_ASCII);
-    }
-    publicKey = Promise.of(ByteBuf.wrapForReading("-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAq/+l1WnlRrGSolDMA+A8\n6rAhMbQGmQ2SapVcGM3zq8ANXjnhDWocMqfWcTd95btDydITa10kDvHzw9WQOqp2\nMZI7ZyrfzJuz5nhTPCiJwTwnEtWft7nV14BYRDHvlfqPUaZ+1KR4OCaO/wWIk/rQ\nL/TjY0M70gse8rlBkbo2a8rKhu69RQTRsoaf4DVhDPEeSeI5jVrRDGAMGL3cGuyY\n6CLKGdjVEM78g3JfYOvDU/RvfqD7L89TZ3iN94jrmWdGz34JNlEI5hqK8dd7C5EF\nBEbZ5jgB8s8ReQV8H+MkuffjdAj3ajDDX3DOJMIut1lBrUVD1AaSrGCKHooWoL2e\ntwIDAQAB\n-----END PUBLIC KEY-----".getBytes(StandardCharsets.UTF_8))) 
-        .then(securityService::readX509PublicKey).whenException(e -> {
-          System.err.printf("[\033[31mSEVERE\033[0m] could not parse public key; %s\t%s\n", e.getCause(), e.getMessage());
-        }).getResult(); 
 
-    kickClient = new KickClient(arrayListUnencoded);
-  } catch(NoSuchAlgorithmException e) {
+      arrayListUnencoded = Dotenv.load("/creds/creds.env");
+      arrayList = new String[arrayListUnencoded.length];
+      for (int i = 0; i < arrayList.length; i++) {
+        arrayList[i] = URLEncoder.encode(arrayListUnencoded[i], StandardCharsets.US_ASCII);
+      }
+      publicKey = Promise.of(ByteBuf.wrapForReading("-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAq/+l1WnlRrGSolDMA+A8\n6rAhMbQGmQ2SapVcGM3zq8ANXjnhDWocMqfWcTd95btDydITa10kDvHzw9WQOqp2\nMZI7ZyrfzJuz5nhTPCiJwTwnEtWft7nV14BYRDHvlfqPUaZ+1KR4OCaO/wWIk/rQ\nL/TjY0M70gse8rlBkbo2a8rKhu69RQTRsoaf4DVhDPEeSeI5jVrRDGAMGL3cGuyY\n6CLKGdjVEM78g3JfYOvDU/RvfqD7L89TZ3iN94jrmWdGz34JNlEI5hqK8dd7C5EF\nBEbZ5jgB8s8ReQV8H+MkuffjdAj3ajDDX3DOJMIut1lBrUVD1AaSrGCKHooWoL2e\ntwIDAQAB\n-----END PUBLIC KEY-----".getBytes(StandardCharsets.UTF_8))) 
+      .then(securityService::readX509PublicKey).whenException(e -> {
+        System.err.printf("[\033[31mSEVERE\033[0m] could not parse public key; %s\t%s\n", e.getCause(), e.getMessage());
+      }).getResult(); 
+
+      kickClient = new KickClient(arrayListUnencoded);
+    } catch(NoSuchAlgorithmException e) {
       System.err.println("[\033[31mSEVERE\033[0m] could not start client; " + e.getMessage());
       System.exit(1);
     }
   }
-//  private static ConcurrentHashMap<String, PKCE> omgBruh = new ConcurrentHashMap<>();
+  //  private static ConcurrentHashMap<String, PKCE> omgBruh = new ConcurrentHashMap<>();
 
   private static final ResourceController resourceController = new ResourceController();
   private static AuthController authController; 
@@ -166,10 +170,10 @@ public final class App extends MultithreadedHttpServerLauncher {
     return EXECUTOR;
   }
 
-	@Provides
-	Eventloop reactor() {
-		return REACTOR;
-	}
+  @Provides
+  Eventloop reactor() {
+    return REACTOR;
+  }
 
   @Provides
   HttpClient client(Executor executor) throws NoSuchAlgorithmException {
@@ -181,7 +185,7 @@ public final class App extends MultithreadedHttpServerLauncher {
 
   @Provides
   IHttpClient httpClient(NioReactor reactor, IDnsClient dnsClient, Executor executor) throws NoSuchAlgorithmException{
-   return io.activej.http.HttpClient.builder(reactor, dnsClient).withSslEnabled(SSLContext.getDefault(), executor).withConnectTimeout(Duration.ofSeconds(5)).build();
+    return io.activej.http.HttpClient.builder(reactor, dnsClient).withSslEnabled(SSLContext.getDefault(), executor).withConnectTimeout(Duration.ofSeconds(5)).build();
   }
 
   IWebSocket wsClient(IHttpClient client) {
@@ -190,808 +194,699 @@ public final class App extends MultithreadedHttpServerLauncher {
 
   @Provides 
   IDnsClient dnsClient(NioReactor reactor) {
-   return DnsClient.builder(reactor, new InetSocketAddress("1.1.1.1", 853)).withTimeout(Duration.ofSeconds(5)).build();
+    return DnsClient.builder(reactor, new InetSocketAddress("1.1.1.1", 853)).withTimeout(Duration.ofSeconds(5)).build();
   }
 
   @Provides 
   AsyncServlet servlet(Eventloop reactor, IHttpClient client, HttpClient httpClient) throws NoSuchAlgorithmException {
     return RoutingServlet.builder(reactor)
-      .with(POST, "/readyup", request -> {
-        if(request.getHeader(HttpHeaders.AUTHORIZATION).equals(arrayListUnencoded[6])) {
-          try {
-            webSocketClient = wsClient(client);
-            
-            System.out.println("[\033[34mINFO\033[0m] websocketClient has been initialized successfully");
-            return SecureResponses.secureDynamic(HttpResponse.ok201()).toPromise();
-          } catch(Exception e) {
-            System.out.printf("[\033[31mSEVERE\033[0m] could not initiate websocketClient; %s\n", e.getMessage());
-            return SecureResponses.secureDynamic(HttpResponse.ofCode(500)).toPromise();
+    .with(POST, "/oauth/token", request -> {
+      final String accessToken = request.getHeader(HttpHeaders.AUTHORIZATION);
+      final String refreshToken = request.getQueryParameter("refresh_token");
+      if((accessToken != null && !accessToken.isBlank()) || (refreshToken != null && !refreshToken.isBlank()) ) {
+        return Promise.ofFuture(kickClient.validateToken(accessToken).thenCompose(tkn -> {
+          if(!tkn.data().active()) {
+            return kickClient.refreshToken(refreshToken);
+          } else {
+            return CompletableFuture.failedFuture(new RuntimeException("token is active, no need to refresh"));
           }
-        } else {
-          return SecureResponses.secureDynamic(HttpResponse.ofCode(403)).toPromise();
-        }
-
-
-      })
+        })).then(newToken -> SecureResponses.secureDynamic(HttpResponse.ok201()
+          .withHeader(HttpHeaders.CONTENT_TYPE, "application/json")
+          .withBody(JSON.toJSONString(newToken))).toPromise(), error -> {
+            System.err.printf("[\033[31mSEVERE\033[0m] error occurred on token refresh; %s\n", error.getMessage());
+            return SecureResponses.secureDynamic(HttpResponse.ofCode(500).withHeader(HttpHeaders.CONTENT_TYPE, "application/json").withBody("{\"status\": \"server error\"}")).toPromise();
+          });
+      } else {
+        return SecureResponses.secureDynamic(HttpResponse.ofCode(400).withHeader(HttpHeaders.CONTENT_TYPE, "application/json").withBody("{\"status\": \"client error\"}")).toPromise();
+      }
+    })
     .with(GET, "/authorize",
-        request -> {
-          try {
-            var cookie = request.getCookie("kt");
-            if(cookie != null) {
-              var processedCookie = StringUtils.split(cookie, '|', 1);
-              return SecureResponses.secureDynamic(HttpResponse.ok200().withHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, arrayListUnencoded[4]).withHtml(JStachio.render(new Auth(processedCookie[0], processedCookie[1])))).build().toPromise();
+      request -> {
+        try {
+          var cookie = request.getCookie("kt");
+          if(cookie != null) {
+            var processedCookie = cookie.split("\\|", 2);
+            return SecureResponses.secureDynamic(HttpResponse.ok200().withHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, arrayListUnencoded[4]).withHtml(JStachio.render(new Auth(processedCookie[0], processedCookie[1])))).build().toPromise();
+          } else {
+            var st = request.getCookie("st");
+            if(st == null) {
+              final SecureRandom secureRandom = new SecureRandom();
+              var state = new byte[64];
+              var codeVerifier = new byte[64];
+              secureRandom.nextBytes(codeVerifier);
+              secureRandom.nextBytes(state);
+              final java.util.Base64.Encoder encoder = Base64.getUrlEncoder();
+              final String verifier = encoder.withoutPadding().encodeToString(codeVerifier);
+              final byte[] challenge = encoder
+              .withoutPadding()
+              .encode(MessageDigest.getInstance("SHA-256")
+                .digest(verifier.getBytes(StandardCharsets.US_ASCII)));
+              final PKCE pkce = new PKCE(verifier, new String(challenge, StandardCharsets.US_ASCII));
+              final String stateEncoded = encoder.withoutPadding().encodeToString(state);
+              database.setEntry(stateEncoded, pkce);
+              //omgBruh.put(stateEncoded, pkce);
+              return SecureResponses.secureDynamic(HttpResponse.ok200().withHtml(JStachio.render(new URL(new StringBuilder(OauthURLs.AUTHORIZE.url).append("?response_type=code&client_id=").append(arrayList[0]).append("&redirect_uri=")
+                .append(arrayList[2])
+                .append("&scope=")
+                .append(URLEncoder.encode(
+                  "user:read channel:read channel:write chat:write events:subscribe moderation:ban kicks:read streamkey:read",
+                  StandardCharsets.UTF_8))
+                .append("&code_challenge=").append(pkce.challenge())
+                .append("&code_challenge_method=S256").append("&state=")
+                .append(stateEncoded)
+                .toString()))).withCookie(HttpCookie.builder("st").withValue(stateEncoded).withHttpOnly(true).withSecure(true).withSameSite(SameSite.LAX).withPath("/").withDomain(arrayListUnencoded[5]).withExpirationDate(Instant.now().plusSeconds(295)).build())).build().toPromise();
             } else {
-              var st = request.getCookie("st");
-              if(st == null) {
-                final SecureRandom secureRandom = new SecureRandom();
-                var state = new byte[64];
-                var codeVerifier = new byte[64];
-                secureRandom.nextBytes(codeVerifier);
-                secureRandom.nextBytes(state);
-                final java.util.Base64.Encoder encoder = Base64.getUrlEncoder();
-                final String verifier = encoder.withoutPadding().encodeToString(codeVerifier);
-                final byte[] challenge = encoder
-                  .withoutPadding()
-                  .encode(MessageDigest.getInstance("SHA-256")
-                      .digest(verifier.getBytes(StandardCharsets.US_ASCII)));
-                final PKCE pkce = new PKCE(verifier, new String(challenge, StandardCharsets.US_ASCII));
-                final String stateEncoded = encoder.withoutPadding().encodeToString(state);
-                database.setEntry(stateEncoded, pkce);
-                //omgBruh.put(stateEncoded, pkce);
-                return SecureResponses.secureDynamic(HttpResponse.ok200().withHtml(JStachio.render(new URL(new StringBuilder(OauthURLs.AUTHORIZE.url).append("?response_type=code&client_id=").append(arrayList[0]).append("&redirect_uri=")
-                          .append(arrayList[2])
-                          .append("&scope=")
-                          .append(URLEncoder.encode(
-                              "user:read channel:read channel:write chat:write events:subscribe moderation:ban",
-                              StandardCharsets.UTF_8))
-                          .append("&code_challenge=").append(pkce.challenge())
-                          .append("&code_challenge_method=S256").append("&state=")
-                          .append(stateEncoded)
-                          .toString()))).withCookie(HttpCookie.builder("st").withValue(stateEncoded).withHttpOnly(true).withSecure(true).withSameSite(SameSite.LAX).withPath("/").withDomain(arrayListUnencoded[5]).withExpirationDate(Instant.now().plusSeconds(295)).build())).build().toPromise();
-              } else {
-                var pkce = database.getEntry(st);
-                // var test = omgBruh.get(st);
-                // if(test != null) {
-                //   System.out.printf("omgBruh -> %s, %s\t%s\n", st, test, test.challenge() == pkce.challenge() ? "I'm gay" : "I'm not straight");
-                // }
-                return SecureResponses.secureDynamic(HttpResponse.ok200().withHtml(JStachio.render(new URL(new StringBuilder(OauthURLs.AUTHORIZE.url).append("?response_type=code&client_id=").append(arrayList[0]).append("&redirect_uri=")
-                          .append(arrayList[2])
-                          .append("&scope=")
-                          .append(URLEncoder.encode(
-                              "user:read channel:read channel:write chat:write events:subscribe moderation:ban",
-                              StandardCharsets.UTF_8))
-                          .append("&code_challenge=").append(pkce.challenge())
-                          .append("&code_challenge_method=S256").append("&state=")
-                          .append(st)
-                          .toString())))).build().toPromise();
-              }
-
+              var pkce = database.getEntry(st);
+              // var test = omgBruh.get(st);
+              // if(test != null) {
+              //   System.out.printf("omgBruh -> %s, %s\t%s\n", st, test, test.challenge() == pkce.challenge() ? "I'm gay" : "I'm not straight");
+              // }
+              return SecureResponses.secureDynamic(HttpResponse.ok200().withHtml(JStachio.render(new URL(new StringBuilder(OauthURLs.AUTHORIZE.url).append("?response_type=code&client_id=").append(arrayList[0]).append("&redirect_uri=")
+                .append(arrayList[2])
+                .append("&scope=")
+                .append(URLEncoder.encode(
+                  "user:read channel:read channel:write chat:write events:subscribe moderation:ban kicks:read streamkey:read",
+                  StandardCharsets.UTF_8))
+                .append("&code_challenge=").append(pkce.challenge())
+                .append("&code_challenge_method=S256").append("&state=")
+                .append(st)
+                .toString())))).build().toPromise();
             }
 
-          } catch(Exception e) {
-            System.out.printf("[\033[31mSEVERE\033[0m] could not process request; %s\n%s\n", e.getMessage(), Arrays.stream(e.getStackTrace()).map(stackTrace -> String.format("%s\t%s\t%s\n", stackTrace.getClassName(), stackTrace.getMethodName(), stackTrace.getLineNumber())).collect(Collectors.toList()));
-            return SecureResponses.secureDynamic(HttpResponse.ofCode(500)).build().toPromise();
           }
 
-        })
-    .with(GET, "/js/*", resourceController::js)
-      .with(GET, "/refresh", authController::refresh)
-      .with(GET, "/callback/auth", request -> {
-        try {
-          var parameters = StringUtils.split(request.getQuery(), '&', 1);
-          //System.out.println("lmao");
-          //System.out.println(map.get(URLEncoder.encode(parameters.get("state"), StandardCharsets.US_ASCII)));
-          //map.forEach((key, value) -> {
-          //  System.out.printf("%s != %s ?\n", key, URLEncoder.encode(parameters.get("state"), StandardCharsets.US_ASCII));
-          //  if(key.equals(URLEncoder.encode(parameters.get("state"), StandardCharsets.US_ASCII))) {
-          //    System.out.println("أسلم!!!!!");
-          //  }
-          //});
-          var body = new StringBuilder(parameters[0]).append("&client_id=").append(arrayList[0]).append("&client_secret=").append(arrayList[1]).append("&redirect_uri=").append(arrayList[2]).append("&grant_type=authorization_code&code_verifier=").append(database.getDelEntry(StringUtils.split(parameters[1], '=', 1)[1]).verifier()).toString();
-          // CompletableFuture<String> future = reactor.submit(() ->
-          //     client.request(HttpRequest.builder(HttpMethod.POST, OauthURLs.TOKEN.url).withHeader(HttpHeaders.CONTENT_TYPE, "application/x-www-form-urlencoded").withBody(new StringBuilder("client_id=").append(arrayList[0]).append("&client_secret=").append(arrayList[1]).append("&grant_type=client_credentials").toString()).build()).then(response -> response.loadBody()).map(bodyy -> bodyy.getString(StandardCharsets.UTF_8)));
-          // System.out.println("اح");        
-          // final CompletableFuture<String> resultt = eventloop.submit(()->
-          //        client.request(HttpRequest.get("https://kick.com/api/v1/channels/".concat("sadmadladsalman"))
-          //                .withHeader(HttpHeaders.USER_AGENT, "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/117.0")
-          //                .withHeader(HttpHeaders.ACCEPT_ENCODING,"").build())
-          //            .then(lPlusRatio -> lPlusRatio.loadBody())
-          //            .map(body -> body.getString(StandardCharsets.UTF_8))
-          //            .whenComplete((result, exceptione) -> System.out.printf("[\033[34mINFO\033[0m] %s has been fetched\n", "aboSalman"))
-          //            .whenException(exception -> System.err.printf("\033[31mSEVERE\033[0m] could not fetch %s; %s\n", "aboSalman", exception.getMessage())));
-          //eventloop.run();
-          /* future.get(); */
+        } catch(Exception e) {
+          System.out.printf("[\033[31mSEVERE\033[0m] could not process request; %s\n%s\n", e.getMessage(), Arrays.stream(e.getStackTrace()).map(stackTrace -> String.format("%s\t%s\t%s\n", stackTrace.getClassName(), stackTrace.getMethodName(), stackTrace.getLineNumber())).collect(Collectors.toList()));
+          return SecureResponses.secureDynamic(HttpResponse.ofCode(500)).build().toPromise();
+        }
 
-          // final CompletableFuture<Credentials> responseBody = reactor.submit(() -> 
-          //    client.request(HttpRequest.builder(POST, OauthURLs.TOKEN.url).withHeader(HttpHeaders.CONTENT_TYPE, "application/x-www-form-urlencoded").withBody(body).build())
-          //     .map(res -> JSON.parseObject(res.getBody().getArray(), Credentials.class)).whenResult(() -> {
-          //       System.out.println("token fetched");
-          //     }).whenException(e -> e.printStackTrace())
-          //     );
-          // reactor.run();
-          // var response = responseBody.get(10, TimeUnit.SECONDS);
-          var response = httpClient.sendAsync(java.net.http.HttpRequest.newBuilder(URI.create(OauthURLs.TOKEN.url)).POST(BodyPublishers.ofString(body)).header("Content-Type", "application/x-www-form-urlencoded").build(), BodyHandlers.ofString())
-            .thenApply(res -> {
-          System.out.printf("[\033[31mINFO\033[0m] request body: %s\n", res.body());
+      })
+    .with(GET, "/js/*", resourceController::js)
+    .with(GET, "/refresh", authController::refresh)
+    .with(GET, "/callback/auth", request -> {
+      try {
+        var parameters = request.getQuery().split("&", 2);
+        //System.out.println("lmao");
+        //System.out.println(map.get(URLEncoder.encode(parameters.get("state"), StandardCharsets.US_ASCII)));
+        //map.forEach((key, value) -> {
+        //  System.out.printf("%s != %s ?\n", key, URLEncoder.encode(parameters.get("state"), StandardCharsets.US_ASCII));
+        //  if(key.equals(URLEncoder.encode(parameters.get("state"), StandardCharsets.US_ASCII))) {
+        //    System.out.println("أسلم!!!!!");
+        //  }
+        //});
+        var body = new StringBuilder(parameters[0]).append("&client_id=").append(arrayList[0]).append("&client_secret=").append(arrayList[1]).append("&redirect_uri=").append(arrayList[2]).append("&grant_type=authorization_code&code_verifier=").append(database.getDelEntry(parameters[1].split("=", 2)[1]).verifier()).toString();
+        // CompletableFuture<String> future = reactor.submit(() ->
+        //     client.request(HttpRequest.builder(HttpMethod.POST, OauthURLs.TOKEN.url).withHeader(HttpHeaders.CONTENT_TYPE, "application/x-www-form-urlencoded").withBody(new StringBuilder("client_id=").append(arrayList[0]).append("&client_secret=").append(arrayList[1]).append("&grant_type=client_credentials").toString()).build()).then(response -> response.loadBody()).map(bodyy -> bodyy.getString(StandardCharsets.UTF_8)));
+        // System.out.println("اح");        
+        // final CompletableFuture<String> resultt = eventloop.submit(()->
+        //        client.request(HttpRequest.get("https://kick.com/api/v1/channels/".concat("sadmadladsalman"))
+        //                .withHeader(HttpHeaders.USER_AGENT, "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/117.0")
+        //                .withHeader(HttpHeaders.ACCEPT_ENCODING,"").build())
+        //            .then(lPlusRatio -> lPlusRatio.loadBody())
+        //            .map(body -> body.getString(StandardCharsets.UTF_8))
+        //            .whenComplete((result, exceptione) -> System.out.printf("[\033[34mINFO\033[0m] %s has been fetched\n", "aboSalman"))
+        //            .whenException(exception -> System.err.printf("\033[31mSEVERE\033[0m] could not fetch %s; %s\n", "aboSalman", exception.getMessage())));
+        //eventloop.run();
+        /* future.get(); */
+
+        // final CompletableFuture<Credentials> responseBody = reactor.submit(() -> 
+        //    client.request(HttpRequest.builder(POST, OauthURLs.TOKEN.url).withHeader(HttpHeaders.CONTENT_TYPE, "application/x-www-form-urlencoded").withBody(body).build())
+        //     .map(res -> JSON.parseObject(res.getBody().getArray(), Credentials.class)).whenResult(() -> {
+        //       System.out.println("token fetched");
+        //     }).whenException(e -> e.printStackTrace())
+        //     );
+        // reactor.run();
+        // var response = responseBody.get(10, TimeUnit.SECONDS);
+        var response = httpClient.sendAsync(java.net.http.HttpRequest.newBuilder(URI.create(OauthURLs.TOKEN.url)).POST(BodyPublishers.ofString(body)).header("Content-Type", "application/x-www-form-urlencoded").build(), BodyHandlers.ofString())
+        .thenApply(res -> {
+          //System.out.printf("[\033[31mINFO\033[0m] request body: %s\n", res.body());
           return JSON.parseObject(res.body(), Credentials.class);
 
         }).get(10, TimeUnit.SECONDS);
 
-          if (!response.isEmpty()) {
-            //System.out.println(responseBody);
-            return SecureResponses.secureDynamic(HttpResponse.redirect301(arrayListUnencoded[4] + "/authorize").withCookie(HttpCookie.builder("st").withValue("").withHttpOnly(true).withSecure(true).withSameSite(SameSite.LAX).withPath("/").withDomain(arrayListUnencoded[5]).withExpirationDate(LocalDateTime.of(1970, 1, 1, 0, 0).toInstant(ZoneOffset.ofHoursMinutes(-3, 0))).build())
-                .withHtml("""
-                  <!DOCTYPE html>
-                  <html>
-                  <header>
-                  <title>Fetching token...</title>
-                  </header>
-                  <body>
-                  <div id="box"></div>
-                  </body>
-                  <style>
-                  :root {
-                    --text: #00e701;
-                    --background: #0b0e0f; 
-                    --border: #474f54;
-                  }
-                  body {
-                    background-color: var(--background);
-                  }
-#box {
-position: absolute;
-top: 50%;
-left: 50%;
-transform: translate(-50%, -50%);
-width: 25vw;
-height: 25vw;
-border: 0.25rem solid var(--border);
-        border-radius: 50%;
-animation: 1s ease-in-out infinite loading;
-}
+        if (!response.isEmpty()) {
+          //System.out.println(responseBody);
+          return SecureResponses.secureDynamic(HttpResponse.redirect301(arrayListUnencoded[4] + "/authorize").withCookie(HttpCookie.builder("st").withValue("").withHttpOnly(true).withSecure(true).withSameSite(SameSite.LAX).withPath("/").withDomain(arrayListUnencoded[5]).withExpirationDate(LocalDateTime.of(1970, 1, 1, 0, 0).toInstant(ZoneOffset.ofHoursMinutes(-3, 0))).build())
+            .withHtml("""
+              <!DOCTYPE html>
+              <html>
+              <header>
+              <title>Fetching token...</title>
+              </header>
+              <body>
+              <div id="box"></div>
+              </body>
+              <style>
+              :root {
+              --text: #00e701;
+              --background: #0b0e0f; 
+              --border: #474f54;
+              }
+              body {
+              background-color: var(--background);
+              }
+              #box {
+              position: absolute;
+              top: 50%;
+              left: 50%;
+              transform: translate(-50%, -50%);
+              width: 25vw;
+              height: 25vw;
+              border: 0.25rem solid var(--border);
+              border-radius: 50%;
+              animation: 1s ease-in-out infinite loading;
+              }
 
-@keyframes loading {
-0% {
-width: 25vw;
-height: 25vw;
-}
+              @keyframes loading {
+              0% {
+              width: 25vw;
+              height: 25vw;
+              }
 
 
-50% {
-width: 50vw;
-height: 50vw;
-}
+              50% {
+              width: 50vw;
+              height: 50vw;
+              }
 
-100% {
-width: 25vw;
-height: 25vw;
-}
+              100% {
+              width: 25vw;
+              height: 25vw;
+              }
 
-}
+              }
 
-</style>
-</html>
-""").withHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, arrayListUnencoded[4]).withCookie(HttpCookie.builder("kt").withValue(new StringBuilder(response.accessToken()).append('|').append(response.refreshToken()).toString()).withHttpOnly(true).withSecure(true).withSameSite(SameSite.LAX).withPath("/").withDomain(arrayListUnencoded[5]).withExpirationDate(Instant.now().plusSeconds(response.expiresIn())).build())).build().toPromise();
-} else {
-  return SecureResponses.secureDynamic(HttpResponse.ofCode(500).withCookie(HttpCookie.builder("st").withValue("").withHttpOnly(true).withSecure(true).withSameSite(SameSite.LAX).withPath("/").withDomain(arrayListUnencoded[5]).withExpirationDate(LocalDateTime.of(1970, 1, 1, 0, 0).toInstant(ZoneOffset.ofHoursMinutes(-3, 0))).build()).withHtml("""
-        <!DOCTYPE html>
-        <html>
-        <header>
-        <title>Fetching token...</title>
-        </header>
-        <body>
-        <div id="box"><h1>Auth failed</h1><p>request failed</p></div>
-        </body>
-        <style>
-        :root {
+              </style>
+              </html>
+              """).withHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, arrayListUnencoded[4]).withCookie(HttpCookie.builder("kt").withValue(new StringBuilder(response.accessToken()).append('|').append(response.refreshToken()).toString()).withHttpOnly(true).withSecure(true).withSameSite(SameSite.LAX).withPath("/").withDomain(arrayListUnencoded[5]).withExpirationDate(Instant.now().plusSeconds(response.expiresIn())).build())).build().toPromise();
+        } else {
+          return SecureResponses.secureDynamic(HttpResponse.ofCode(500).withCookie(HttpCookie.builder("st").withValue("").withHttpOnly(true).withSecure(true).withSameSite(SameSite.LAX).withPath("/").withDomain(arrayListUnencoded[5]).withExpirationDate(LocalDateTime.of(1970, 1, 1, 0, 0).toInstant(ZoneOffset.ofHoursMinutes(-3, 0))).build()).withHtml("""
+            <!DOCTYPE html>
+            <html>
+            <header>
+            <title>Fetching token...</title>
+            </header>
+            <body>
+            <div id="box"><h1>Auth failed</h1><p>request failed</p></div>
+            </body>
+            <style>
+            :root {
+            --text: #00e701;
+            --background: #0b0e0f; 
+            --border: #474f54;
+            }
+            body {
+            background-color: var(--background);
+            }
+            p {
+            font-family: 'Inter', sans-serif;		
+            color: rgba(122,122,122,0);
+            animation: 0.04s ease-in 0.95s forwards opacity-shift;
+            }
+            h1 {
+            font-family: 'Inter', sans-serif;		
+            color: rgba(122,122,122,0);
+            animation: 0.10s ease-in 0.90s forwards opacity-shift;
+
+            }
+            #box {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 25vw;
+            height: 25vw;
+            border: 0.1vw solid var(--border);
+            border-radius: 50%;
+            animation: 1s ease-in-out forwards loading;
+            }
+
+            @keyframes opacity-shift {
+            0% {
+            color: rgba(122,122,122,0);
+            }
+            100% {
+            color: rgba(122,122,122,1);
+
+            }
+            }
+
+            @keyframes loading {
+            0% {
+            width: 25vw;
+            height: 25vw;
+            }
+            50% {
+            width: 50vw;
+            height: 50vw;
+            }
+            100% {
+            width: 25vw;
+            height: 25vw;
+            border-color: darkred;
+            }
+
+            }
+
+            </style>
+            </html>
+            """)).build().toPromise();
+
+        }
+        //System.out.println(responseBody);
+        //System.out.println(result);
+
+      } catch(Exception e) {
+        System.err.printf("[\033[31mSEVERE\033[0m] could not send request; %s\n", e.getMessage());
+        return SecureResponses.secureDynamic(HttpResponse.ofCode(500).withCookie(HttpCookie.builder("st").withValue("").withHttpOnly(true).withSecure(true).withSameSite(SameSite.LAX).withPath("/").withDomain(arrayListUnencoded[5]).withExpirationDate(LocalDateTime.of(1970, 1, 1, 0, 0).toInstant(ZoneOffset.ofHoursMinutes(-3, 0))).build()).withHtml("""
+          <!DOCYTYPE html>
+          <html>
+          <header>
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <meta charset="UTF-8">
+          <title>fetching token...</title>
+          </header>
+          <body>
+          <div id="box"><h1>auth failed</h1><p>request failed</p></div>
+          </body>
+          <style>
+          :root {
           --text: #00e701;
           --background: #0b0e0f; 
           --border: #474f54;
-        }
-        body {
-          background-color: var(--background);
-        }
-        p {
-          font-family: 'Inter', sans-serif;		
-color: rgba(122,122,122,0);
-animation: 0.04s ease-in 0.95s forwards opacity-shift;
-        }
-        h1 {
-          font-family: 'Inter', sans-serif;		
-color: rgba(122,122,122,0);
-animation: 0.10s ease-in 0.90s forwards opacity-shift;
-
-        }
-#box {
-display: flex;
-         flex-direction: column;
-         justify-content: center;
-         align-items: center;
-position: absolute;
-top: 50%;
-left: 50%;
-transform: translate(-50%, -50%);
-width: 25vw;
-height: 25vw;
-border: 0.1vw solid var(--border);
-        border-radius: 50%;
-animation: 1s ease-in-out forwards loading;
-}
-
-@keyframes opacity-shift {
-0% {
-color: rgba(122,122,122,0);
-}
-100% {
-color: rgba(122,122,122,1);
-
-}
-}
-
-@keyframes loading {
-0% {
-width: 25vw;
-height: 25vw;
-}
-50% {
-width: 50vw;
-height: 50vw;
-}
-100% {
-width: 25vw;
-height: 25vw;
-        border-color: darkred;
-}
-
-}
-
-</style>
-</html>
-""")).build().toPromise();
-
-}
-//System.out.println(responseBody);
-//System.out.println(result);
-
-} catch(Exception e) {
-  System.err.printf("[\033[31mSEVERE\033[0m] could not send request; %s\n", e.getMessage());
-  return SecureResponses.secureDynamic(HttpResponse.ofCode(500).withCookie(HttpCookie.builder("st").withValue("").withHttpOnly(true).withSecure(true).withSameSite(SameSite.LAX).withPath("/").withDomain(arrayListUnencoded[5]).withExpirationDate(LocalDateTime.of(1970, 1, 1, 0, 0).toInstant(ZoneOffset.ofHoursMinutes(-3, 0))).build()).withHtml("""
-        <!DOCYTYPE html>
-        <html>
-        <header>
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <meta charset="UTF-8">
-        <title>fetching token...</title>
-        </header>
-        <body>
-        <div id="box"><h1>auth failed</h1><p>request failed</p></div>
-        </body>
-        <style>
-        :root {
-          --text: #00e701;
-          --background: #0b0e0f; 
-          --border: #474f54;
-        }
-        body {
-          background-color: var(--background);
-        }
-        p {
-          font-family: 'inter', sans-serif;		
-color: rgba(122,122,122,0);
-animation: 0.04s ease-in 0.95s forwards opacity-shift;
-        }
-        h1 {
-          font-family: 'inter', sans-serif;		
-color: rgba(122,122,122,0);
-animation: 0.10s ease-in 0.90s forwards opacity-shift;
-
-        }
-#box {
-display: flex;
-         flex-direction: column;
-         justify-content: center;
-         align-items: center;
-position: absolute;
-top: 50%;
-left: 50%;
-transform: translate(-50%, -50%);
-width: 25vw;
-height: 25vw;
-border: 0.1vw solid var(--border);
-        border-radius: 50%;
-animation: 1s ease-in-out forwards loading;
-}
-
-@keyframes opacity-shift {
-0% {
-color: rgba(122,122,122,0);
-}
-100% {
-color: rgba(122,122,122,1);
-
-}
-}
-
-@keyframes loading {
-0% {
-width: 25vw;
-height: 25vw;
-}
-50% {
-width: 50vw;
-height: 50vw;
-}
-100% {
-width: 25vw;
-height: 25vw;
-        border-color: darkred;
-}
-
-}
-
-</style>
-</html>
-""")).build().toPromise();
-}
-
-})
-.with(GET, "/*", request -> SecureResponses.secureDynamic(HttpResponse.ofCode(404)
-      .withHtml(JStachio.render(new URLNotFound(request.getRelativePath())))).build().toPromise())
-.with("/css/*", resourceController::css)
-// .with(GET, "/", request -> {
-//     try {
-//       return SecureResponses.secureDynamic(HttpResponse.ok200().withHtml(new String(loader.load("main.html")/*.whenException(e -> System.out.printf("[\033[31mSEVERE\033[0m] could not process request; %s\n", e.getMessage()))*/.getResult().array()))).build().toPromise();
-//     } catch(Exception e) {
-//       //System.out.printf("[\033[31mSEVERE\033[0m] could not process request; %s\n", e.getMessage());
-//       return SecureResponses.secureDynamic(HttpResponse.ofCode(501).withHtml(JStachio.render(new URLNotFound(request.getRelativePath())))).build().toPromise();
-//     }
-//   }
-//         )
-.with(POST, "/callback", request -> {
-
-  return request.loadBody().then(body -> {
-    //
-    //   //System.out.println(body.asString(StandardCharsets.UTF_8)); 
-    //   System.out.printf("validity: %b\n", securityService.verify(publicKey, request.getHeader(HttpHeaders.of("Kick-Event-Message-Id")), body.asString(StandardCharsets.UTF_8),request.getHeader(io.activej.http.HttpHeaders.of("Kick-Event-Message-Timestamp")), request.getHeader(io.activej.http.HttpHeaders.of("Kick-Event-Signature"))).getResult());
-    //   System.out.println("body: " + body.asString(StandardCharsets.UTF_8));
-    //   return new String(body.array());
-    // }).whenException(e -> System.out.printf("[\033[31mSEVERE\033[0m] could not parse body; %s\n%s\n", e.getMessage(), Arrays.stream(e.getStackTrace()).map(a -> String.format("%s: %s\n", a.getClassName(), a.getLineNumber())).collect(Collectors.toList())));
-    // return SecureResponses.secureDynamic(HttpResponse.ok200().withJson("{\"status\": \"OK\"}")).build().toPromise();
-    // 
-    String messageId = request.getHeader(HttpHeaders.of("Kick-Event-Message-Id"));
-    String timestamp = request.getHeader(HttpHeaders.of("Kick-Event-Message-Timestamp"));
-    String signature = request.getHeader(HttpHeaders.of("Kick-Event-Signature"));
-    String bodyStr = body.asString(StandardCharsets.UTF_8);
-    if(request.getHeader(HttpHeaders.of("Kick-Event-Type")).equals("chat.message.sent")){
-    securityService.verify(publicKey, messageId, timestamp, bodyStr, signature)
-      .whenResult(valid -> {
-        if(valid) {
-        var event = JSON.parseObject(bodyStr, KickChatEvent.class);
-        var chatters = channelsIDs.get(event.broadcaster().username());
-        if(chatters != null) {
-          for (Long chatter: chatters) {
-            var currentChatter = IDsConnections.get(chatter);
-            currentChatter.webSocket.writeMessage(Message.text(bodyStr))
-              .whenException(e -> System.err.printf("[\033[31mSEVERE\033[0m] could not send message to %s; %s\n", currentChatter.nickName, e.getMessage()));
           }
-        }
-        System.out.printf("event: (%s %s): %s\n", event.broadcaster().username(), event.sender().username(), event.content());
-        } 
-        System.out.printf("Validation result: %b\n", valid);
-      })
-    .whenException(e -> System.err.println("Verification error: " + e.getMessage()));
-        }
-    return SecureResponses.secureDynamic(HttpResponse.ok200().withJson("{\"status\": \"OK\"}")).build().toPromise();
-});
-})
-.withWebSocket("/events", webSocket -> {
-  var headers = webSocket.getResponse().getHeaders().stream().map(header -> String.format("%s: %s\n", header.getKey(), header.getValue())).reduce("", (first, second) -> first + second);
-  System.out.printf("new connection: \n%s", headers);
-webSocket.messageReadChannel()
-    .streamTo(ChannelConsumers.ofAsyncConsumer(msg -> {
-        Message msgg = (Message) msg;
-        final String[] message = msgg.getText().split(" ", 2);
-        System.out.printf("[\033[34mINFO\033[0m] %s\n", msgg.getText());
+          body {
+          background-color: var(--background);
+          }
+          p {
+          font-family: 'inter', sans-serif;		
+          color: rgba(122,122,122,0);
+          animation: 0.04s ease-in 0.95s forwards opacity-shift;
+          }
+          h1 {
+          font-family: 'inter', sans-serif;		
+          color: rgba(122,122,122,0);
+          animation: 0.10s ease-in 0.90s forwards opacity-shift;
 
-        return switch (message[0]) {
-            case "PASS" -> {
-                System.out.printf("[\033[34mINFO\033[0m] registering %s\n", message[1]);
-                final String[] oauth = message[1].split(":", 2);
-                Promise<Void> authPromise = Promise.complete();
-                if (oauth[0].equals("oauth") && oauth.length == 2) {
-                    var token = oauth[1];
-                    authPromise = Promise.ofFuture(kickClient.validateToken(token))
-                        .then(tokenIntrospection -> {
-                            if (tokenIntrospection.data().active()) {
-                                System.out.printf("[\033[34mINFO\033[0m] token active; %s\n", token);
-                                return Promise.ofFuture(kickClient.getUserByToken(token))
-                                    .whenResult(user -> {
-                                        long id = user.data()[0].userId();
-                                        System.out.printf("[\033[34mINFO\033[0m] userid for token %s is %d\n", token, id);
-                                        pendingAuth.put(webSocket, id);
-                                        Promises.delay(Duration.ofSeconds(60))
-                                            .whenResult(() -> {
-                                                if (pendingAuth.remove(webSocket) != null) {
-                                                    webSocket.writeMessage(Message.text("TIMEOUT: timeout reached"));
-                                                }
-                                            });
-                                    });
-                            } else {
-                                return Promise.ofException(
-                                    new RuntimeException("Invalid token"));
-                            }
-                        })
-                        .whenException(e -> System.err.printf(
-                            "[\033[31mERROR\033[0m] PASS failed: %s%n", e.getMessage()))
-                        .toVoid();
+          }
+          #box {
+          display: flex;
+          flex-direction: column;
+          justify-content: center;
+          align-items: center;
+          position: absolute;
+          top: 50%;
+          left: 50%;
+          transform: translate(-50%, -50%);
+          width: 25vw;
+          height: 25vw;
+          border: 0.1vw solid var(--border);
+          border-radius: 50%;
+          animation: 1s ease-in-out forwards loading;
+          }
+
+          @keyframes opacity-shift {
+          0% {
+          color: rgba(122,122,122,0);
+          }
+          100% {
+          color: rgba(122,122,122,1);
+
+          }
+          }
+
+          @keyframes loading {
+          0% {
+          width: 25vw;
+          height: 25vw;
+          }
+          50% {
+          width: 50vw;
+          height: 50vw;
+          }
+          100% {
+          width: 25vw;
+          height: 25vw;
+          border-color: darkred;
+          }
+
+          }
+
+          </style>
+          </html>
+          """)).build().toPromise();
+      }
+
+    })
+    .with(GET, "/*", request -> SecureResponses.secureDynamic(HttpResponse.ofCode(404)
+      .withHtml(JStachio.render(new URLNotFound(request.getRelativePath())))).build().toPromise())
+    .with("/css/*", resourceController::css)
+    // .with(GET, "/", request -> {
+    //     try {
+    //       return SecureResponses.secureDynamic(HttpResponse.ok200().withHtml(new String(loader.load("main.html")/*.whenException(e -> System.out.printf("[\033[31mSEVER
+    //       //System.out.printf("[\033[31mSEVERE\033[0m] could not process request; %s\n", e.getMessage());
+    //       return SecureResponses.secureDynamic(HttpResponse.ofCode(501).withHtml(JStachio.render(new URLNotFound(request.getRelativePath())))).build().toPromise();
+    //     }
+    //   }
+    //         )
+    .with(POST, "/callback", request -> {
+
+      return request.loadBody().then(body -> {
+        //
+        //   //System.out.println(body.asString(StandardCharsets.UTF_8)); 
+        //   System.out.printf("validity: %b\n", securityService.verify(publicKey, request.getHeader(HttpHeaders.of("Kick-Event-Message-Id")), body.asString(StandardCharsets.UTF_8),request.getHeader(io.activej.http.HttpHeaders.of("Kick-Event-Message-Timestamp")), request.getHeader(io.activej.http.HttpHeaders.of("Kick-Event-Signature"))).getResult());
+        //   System.out.println("body: " + body.asString(StandardCharsets.UTF_8));
+        //   return new String(body.array());
+        // }).whenException(e -> System.out.printf("[\033[31mSEVERE\033[0m] could not parse body; %s\n%s\n", e.getMessage(), Arrays.stream(e.getStackTrace()).map(a -> String.format("%s: %s\n", a.getClassName(), a.getLineNumber())).collect(Collectors.toList())));
+        // return SecureResponses.secureDynamic(HttpResponse.ok200().withJson("{\"status\": \"OK\"}")).build().toPromise();
+        // 
+        String messageId = request.getHeader(HttpHeaders.of("Kick-Event-Message-Id"));
+        String timestamp = request.getHeader(HttpHeaders.of("Kick-Event-Message-Timestamp"));
+        String signature = request.getHeader(HttpHeaders.of("Kick-Event-Signature"));
+        String bodyStr = body.asString(StandardCharsets.UTF_8);
+        Promise<Boolean> validationResult = Promise.of(true);
+        if(request.getHeader(HttpHeaders.of("Kick-Event-Type")).equals("chat.message.sent")){
+          validationResult = securityService.verify(publicKey, messageId, timestamp, bodyStr, signature)
+          .whenResult(valid -> {
+            if(valid) {
+              var event = JSON.parseObject(bodyStr, KickChatEvent.class);
+              var broadcaster = event.broadcaster();
+              var chatters = channelsIDs.get(event.broadcaster().userId());
+              if(chatters != null) {
+                channelsIDs.computeIfPresent(broadcaster.userId(), (channel, ids) -> {
+                  if(ids.isEmpty()) {
+                    Promise.ofBlocking(App.EXECUTOR, () -> kickClient.deleteAllSubscriptionsFromBroadcaster(Long.toString(event.broadcaster().userId())))
+                      .whenResult(res -> {
+                        //System.out.printf("[\033[34mINFO\033[0m] disconnected from %s\n", broadcaster);
+                      });
+                    return null;
+                  }
+                  return ids;
+                });
+                var sender = event.sender();
+                var sender_identity = sender.identity();
+                var sender_badges = sender_identity.badges();
+                var sb2 = new StringBuilder(";badges=");
+                for(int i = 0; i < sender_badges.size()-1; i++) {
+                  var currentBadge = sender_badges.get(i);
+                  sb2.append(currentBadge.type())
+                    .append('/')
+                    .append(currentBadge.count() != null ? currentBadge.count() : 1)
+                    .append(',');
                 }
-                yield authPromise;
+                if(!sender_badges.isEmpty()) {
+                  final int lastIdx = sender_badges.size()-1;
+                  var currentBadge = sender_badges.get(lastIdx);
+
+                  sb2.append(currentBadge.type())
+                    .append('/')
+                    .append(currentBadge.count() != null ? currentBadge.count() : 1);
+
+                }
+                var sb = new StringBuilder("@message_id=")
+                .append(event.messageId())
+                .append(";sender_username=")
+                .append(sender.username())
+                .append(";broadcaster_id=")
+                .append(broadcaster.userId())
+                .append(";sender_id=")
+                .append(sender.userId())
+                .append(";color=")
+                .append(sender_identity.usernameColor())
+                .append(";is_anonymous=")
+                .append(sender.isAnonymous())
+                .append(";is_verified=")
+                .append(sender.isVerified())
+                .append(";profile_picture=")
+                .append(sender.profilePicture())
+                .append(sb2)
+                .append(" :")
+                .append(sender.channelSlug())
+                .append('!')
+                .append(sender.channelSlug())
+                .append('@')
+                .append(sender.channelSlug())
+                .append('.')
+                .append(arrayListUnencoded[5])
+                .append(" PRIVMSG #")
+                .append(broadcaster.channelSlug())
+                .append(" :")
+                .append(event.content());
+
+                for (Long chatter: chatters) {
+                  var currentChatter = IDsConnections.get(chatter);
+                  currentChatter.webSocket.writeMessage(Message.text(sb.toString()))
+                    .whenException(e -> System.err.printf("[\033[31mSEVERE\033[0m] could not send message to %s; %s\n", currentChatter.nickName, e.getMessage()));
+                }
+              } else {
+                if(!pendingGarbage.contains(broadcaster.userId())) {
+                  Promise.ofBlocking(App.EXECUTOR, () -> kickClient.deleteAllSubscriptionsFromBroadcaster(Long.toString(event.broadcaster().userId())))
+                    .whenResult(res -> {
+                      pendingGarbage.add(broadcaster.userId());
+                        Promises.delay(Duration.ofSeconds(60)).whenResult(v -> {
+                          pendingGarbage.remove(broadcaster.userId());
+                        });
+                      //System.out.printf("[\033[34mINFO\033[0m] disconnected from %s\n", broadcaster);
+                    })
+                    .whenException(e -> {
+                      System.err.printf("[\033[31mSEVERE\033[0m] disconnected from %s, but we didn't disconnect from %s; %s\n", broadcaster, broadcaster, e.getMessage());
+                    });
+
+                } 
+                //System.out.printf("event: (%s %s): %s\n", event.broadcaster().username(), event.sender().username(), event.content());
+              }
+            }
+            //System.out.printf("Validation result: %b\n", valid);
+          })
+          .whenException(e -> System.err.println("Verification error: " + e.getMessage()));
+        }
+        return validationResult.then(valid -> {
+          if(valid) {
+            return SecureResponses.secureDynamic(HttpResponse.ofCode(200).withJson("{\"status\": \"OK\"}")).toPromise();
+          } else {
+
+            return SecureResponses.secureDynamic(HttpResponse.ofCode(401).withJson("{\"status\": \"UNAUTHORIZED\"}")).toPromise();
+          }
+        });
+      });
+    })
+    .withWebSocket("/events", webSocket -> {
+      //var headers = webSocket.getResponse().getHeaders().stream().map(header -> String.format("%s: %s\n", header.getKey(), header.getValue())).reduce("", (first, second) -> first + second);
+      //System.out.printf("new connection: \n%s", headers);
+      webSocket.messageReadChannel()
+        .streamTo(ChannelConsumers.ofAsyncConsumer(msg -> {
+          Message msgg = (Message) msg;
+          final String[] message = msgg.getText().split(" ", 2);
+          //System.out.printf("[\033[34mINFO\033[0m] %s\n", msgg.getText());
+
+          return switch (message[0]) {
+            case "PASS" -> {
+              //System.out.printf("[\033[34mINFO\033[0m] registering %s\n", message[1]);
+              final String[] oauth = message[1].split(":", 2);
+              Promise<Void> authPromise = Promise.complete();
+              if (oauth[0].equals("oauth") && oauth.length == 2) {
+                var token = oauth[1];
+                authPromise = Promise.ofFuture(kickClient.validateToken(token))
+                .then(tokenIntrospection -> {
+                  if (tokenIntrospection.data().active()) {
+                    //System.out.printf("[\033[34mINFO\033[0m] token active; %s\n", token);
+                    return Promise.ofFuture(kickClient.getUserByToken(token))
+                    .whenResult(user -> {
+                      long id = user.data()[0].userId();
+                      //System.out.printf("[\033[34mINFO\033[0m] userid for token %s is %d\n", token, id);
+                      pendingAuth.put(webSocket, id);
+                      Promises.delay(Duration.ofSeconds(60))
+                        .whenResult(() -> {
+                          if (pendingAuth.remove(webSocket) != null) {
+                            webSocket.writeMessage(Message.text("TIMEOUT: timeout reached"));
+                          }
+                        });
+                    });
+                  } else {
+                    return Promise.ofException(
+                      new RuntimeException("Invalid token"));
+                  }
+                })
+                .whenException(e -> System.err.printf(
+                  "[\033[31mERROR\033[0m] PASS failed: %s%n", e.getMessage()))
+                .toVoid();
+              }
+              yield authPromise;
             }
 
             case "NICK" -> {
-                System.out.printf("[\033[34mINFO\033[0m] retrieving connection\n");
-                var id = pendingAuth.remove(webSocket);
-                if (id != null) {
-                    System.out.printf("[\033[34mINFO\033[0m] connection of id %d has been retrieved\n", id);
-                    connectionsIDs.put(webSocket, id);
-                    IDsConnections.put(id, new Client(message[1], null, null, null, webSocket));
-                }
-                yield Promise.complete();
+              //System.out.printf("[\033[34mINFO\033[0m] retrieving connection\n");
+              var id = pendingAuth.remove(webSocket);
+              if (id != null) {
+                //System.out.printf("[\033[34mINFO\033[0m] connection of id %d has been retrieved\n", id);
+                connectionsIDs.put(webSocket, id);
+                IDsConnections.put(id, new Client(message[1], null, null, null, webSocket));
+                Promises.repeat(() -> 
+                  Promises.delay(Duration.ofSeconds(30)).then(() -> 
+                    webSocket.writeMessage(Message.text(new StringBuilder("PING :").append(arrayList[5]).toString())))
+                  .then(() -> Promise.of(!webSocket.isClosed() && connectionsIDs.get(webSocket) != null)));
+              }
+              yield Promise.complete();
             }
 
             case "JOIN" -> {
-    Promise<Void> joinPromise = Promise.complete();
-    if (connectionsIDs.get(webSocket) != null) {
-        System.out.printf("[\033[34mINFO\033[0m] received message %s\n",
-            message[1].isBlank() || message[1].isEmpty() ? "Empty" : message[1]);
-        joinPromise = Promise.ofBlocking(App.EXECUTOR, () -> {
-            String channelName = message[1];
-            Set<Long> subscribers = channelsIDs.computeIfAbsent(channelName, k -> {
-                try {
-                    System.out.println("hi");
-                    var channel = kickClient.getChannelByLogin(k)
-                        .get(5, TimeUnit.SECONDS);
-                    System.out.println("اه");
-                    if (channel != null) {
-                        var response = kickClient.postEventSubscriptions(
-                            Long.toString(channel.broadcasterUserId()))
-                            .get(5, TimeUnit.SECONDS);
-                        System.out.println(response.body());
-                        System.out.println("اه اه");
-                        if (response.statusCode() >= 200 && response.statusCode() < 300) {
-                            return ConcurrentHashMap.newKeySet();
-                        }
-                    }
-                } catch (TimeoutException | InterruptedException | ExecutionException e) {
-                    System.err.printf("[\033[31mERROR\033[0m] error sending request; %s\n", e.getMessage());
-                } catch (IOException e) {
-                    System.err.printf("[\033[31mERROR\033[0m]");
-                }
-                return null;
-            });
+              Promise<Void> joinPromise = Promise.complete();
+              if (connectionsIDs.get(webSocket) != null) {
+                if(message.length > 1 && message[1].startsWith("#")) {
 
-            if (subscribers != null) {
-                subscribers.add(connectionsIDs.get(webSocket));
-                System.out.printf("[\033[34mINFO\033[0m] channel %s subscribers:\n", channelName);
-                for(Long id : subscribers)  {
-                      System.out.printf("[\033[34mINFO\033[0m] (%d, %s)\n", id, IDsConnections.get(id).nickName);
+                  /*System.out.printf("[\033[34mINFO\033[0m] received message %s\n",
+        message[1].isBlank() || message[1].isEmpty() ? "Empty" : message[1]);*/
+                  joinPromise = Promise.ofBlocking(App.EXECUTOR, () -> {
+                    String channelName = message[1].substring(1);
+                    try {
+                      var channel = kickClient.getChannelByLogin(channelName)
+                      .get(5, TimeUnit.SECONDS);
+                      if(channel != null) { 
+                        Set<Long> subscribers = channelsIDs.computeIfAbsent(channel.broadcasterUserId(), k -> {
+                          try {
+                            //System.out.println("hi");
+                            //System.out.println("اه");
+                            var response = kickClient.postEventSubscriptions(
+                              Long.toString(channel.broadcasterUserId()))
+                            .get(5, TimeUnit.SECONDS);
+                            //System.out.println("اه اه");
+                            if (response.statusCode() >= 200 && response.statusCode() < 300) {
+                              return ConcurrentHashMap.newKeySet();
+                            }
+                          } catch (TimeoutException | InterruptedException | ExecutionException e) {
+                            System.err.printf("[\033[31mSEVERE\033[0m] error sending request; %s\n", e.getMessage());
+                          } 
+                          return null;
+                        });
+
+                        if (subscribers != null && !subscribers.contains(connectionsIDs.get(webSocket))) {
+                          subscribers.add(connectionsIDs.get(webSocket));
+                          System.out.printf("[\033[34mINFO\033[0m] channel %s subscribers:\n", channelName);
+                          for(Long id : subscribers)  {
+                            System.out.printf("[\033[34mINFO\033[0m] (%d, %s)\n", id, IDsConnections.get(id).nickName);
+                          }
+                        }
+                      }
+                    } catch(Exception e) {
+                      System.err.printf("[\033[31mSEVERE\033[0m] JOIN error with channel %s; %s\n", channelName, e.getMessage());
+                    }
+                  });
                 }
+              }
+              yield joinPromise;
             }
+            case "PING" -> Promise.complete();
+            case "PART" -> {
+              Promise<Void> partPromise = Promise.complete();
+              if(message.length > 1 && message[1].startsWith("#")) {
+                var channelName = message[1].substring(1);
+                partPromise = Promise.ofBlocking(App.EXECUTOR, () -> {
+                  try {
+                    var channel = kickClient.getChannelByLogin(channelName).get(5, TimeUnit.SECONDS);
+                    if(channel != null) {
+                      channelsIDs.computeIfPresent(channel.broadcasterUserId(), (channelId, eventSubscribers) -> {
+                        eventSubscribers.remove(connectionsIDs.get(webSocket));
+                        if(eventSubscribers.isEmpty()) {
+                          kickClient.deleteAllSubscriptionsFromBroadcaster(Long.toString(channel.broadcasterUserId()))
+                            .exceptionally(e -> {
+                              System.out.printf("[\033[31mSEVERE\033[0m] could not unsubscribe from %s with user id %d; %s", channelName, channel.broadcasterUserId(), e.getMessage());
+                              return null;
+                            });
+                          return null;
+                        } else {
+                          return eventSubscribers;
+                        }
+                      });
+                    }
+                  } catch(Exception e) {
+                    System.err.printf("[\033[31mSEVERE\033[0m] PART error with channel %s; %s\n", channelName, e.getMessage());
+
+                  }
+                });
+
+              }
+              yield partPromise; 
+            }
+            default -> Promise.complete();
+          };
+        }))
+        .whenResult(() -> {
+          System.out.println("[\033[35mCONFUSED\033[0m] scrajj");
+        })
+        .whenException(e -> {
+
+          Long userId = connectionsIDs.remove(webSocket);
+          if (userId != null) {
+            IDsConnections.remove(userId);
+            channelsIDs.forEach((channel, subscribers) -> {
+              if (subscribers.remove(userId) && subscribers.isEmpty()) {
+                Promise.ofBlocking(App.EXECUTOR, 
+                () -> kickClient.deleteAllSubscriptionsFromBroadcaster(Long.toString(channel)).get(5, TimeUnit.SECONDS))
+                  .whenException(ex -> System.err.println("Cleanup failed: " + ex.getMessage()));
+              }
+            });
+          }
+          pendingAuth.remove(webSocket);
+          System.out.println("[\033[35mCONFUSED\033[0m] huh");
+        })
+        .whenComplete(() -> {
+          //
+          // var connectionId = connectionsIDs.remove(webSocket);
+          // IDsConnections.remove(connectionId);
+          // pendingAuth.remove(webSocket);
+          System.out.println("[\033[35mCONFUSED\033[0m] okay...");
+          System.out.printf("[\033[35mCONFUSED\033[0m] %s erred for some reason\n", IDsConnections.get(connectionsIDs.get(webSocket)));
         });
     }
-    yield joinPromise;
-}
+    )
 
-            case "PART" -> {
-                yield Promise.complete();
-            }
+    .build();
 
-            default -> Promise.complete();
-        };
-    }))
-    .whenResult(() -> {
-        System.out.println("[\033[35mCONFUSED\033[0m] scrajj");
-    })
-    .whenException(e -> {
-        e.printStackTrace();
-        connectionsIDs.remove(webSocket);
-        System.out.println("[\033[35mCONFUSED\033[0m] huh");
-    })
-    .whenComplete(() -> {
-        var connectionId = connectionsIDs.remove(webSocket);
-        IDsConnections.remove(connectionId);
-        pendingAuth.remove(webSocket);
-        System.out.println("[\033[35mCONFUSED\033[0m] okay...");
-    });
-      //   String name = webSocket.readMessage().map(msg -> {
-//     final String[] currentMsg = msg.getText().split(" ");
-//     Thread.sleep(5);
-//     if(currentMsg[0].equals("PASS")) {
-//       final String[] tkn = currentMsg[1].split(":");
-//       if(tkn[0].equals("oauth")) {
-//         final TokenIntrospection tokenIntrospection = httpClient.sendAsync(java.net.http.HttpRequest.newBuilder(URI.create(APIURLs.INTROSPECT_TOKEN.url)).POST(BodyPublishers.noBody()).header("Authorization", "Bearer " + tkn).build(), BodyHandlers.ofString())
-//           .thenApply(response -> JSON.parseObject(response.body(), TokenIntrospection.class)).get(5, TimeUnit.SECONDS);
-//         if(tokenIntrospection.data().active()) {
-//           final String namee = webSocket.readMessage().map(message -> {
-//             System.out.println(message.getText());
-//             final String[] nickName = message.getText().split(" ");
-//             if(nickName[0].equals("NICK")) {
-//               return nickName[1];
-//             } else {
-//               return "";
-//             }
-//           })
-//             .whenException(e -> System.err.printf("[\033[31mSEVERE\033[0m] could not process the nickname; %s\t %s\n",e.getMessage(), e.toString()))
-//             .getResult();
-//           if(!namee.isBlank()) {
-//             connections.put(webSocket, new Client(namee, null, arrayListUnencoded[5], null, webSocket));
-//           }
-//
-//       //var res = httpClient.sendAsync(java.net.http.HttpRequest.newBuilder(URI.create(APIURLs.)).build(), BodyHandlers.ofString()).get(5, TimeUnit.SECONDS);
-//             }
-//           return webSocket.readMessage().map(message -> {
-//
-//             System.out.println(message.getText());
-//             final String[] nickName = message.getText().split(" ");
-//             if(nickName[0].equals("NICK")) {
-//               return nickName[1];
-//             } else {
-//               return "";
-//             }
-//           }).getResult();
-//
-//
-//       } else {
-//
-//           return "";
-//     }
-//     } else {
-//       return "";
-//     }
-//   }).getResult();
-//   System.out.println(name);
-//   webSocket.messageReadChannel().peek(msg -> {
-//     final String[] $ = msg.getText().split(" ");
-//     System.out.println($[0]);
-//     if($.length == 2) {
-//       switch ($[0]) {
-//         case "JOIN" -> {
-//   if(connections.get(webSocket) != null)
-//   try {
-//     if($[1].startsWith("#")) {
-//       var channelName = $[1].substring(1);
-//       var channel = channels.get(channelName);
-//       if(channel ==  null) {
-//         httpClient.sendAsync(java.net.http.HttpRequest.newBuilder(URI.create(APIURLs.CHANNELS.url)).method("GET", BodyPublishers.ofString("slug=" + channelName)).headers("Content-Type", "application/x-www-form-urlencoded", "Authorization", "Bearer " + arrayListUnencoded[6]).build(), BodyHandlers.ofString()).thenComposeAsync(resul -> {
-//           return httpClient.sendAsync(java.net.http.HttpRequest.newBuilder(URI.create(APIURLs.SUBSCRIPTIONS.url)).POST(BodyPublishers.ofString(new StringBuilder("{\"broadcaster_id\": ").append(JSON.parseArray(resul.body(), Channel.class).get(0).broadcasterUserId()).append(",\"events\": [ {\"name\": \"chat.message.sent\", \"version\": 1}, {\"name\": \"channel.subscription.renewal\", \"version\": 1}, {\"name\": \"channel.subscription.new\", \"version\": 1}, {\"name\": \"livestream.status.updated\", \"version\": 1}, {\"name\": \"moderation.banned\", \"version\": 1}], \"method\": \"webhook\"}").toString())).headers("Content-Type", "application/json", "Authorization", "Bearer " + arrayListUnencoded[6]).build(), BodyHandlers.ofString());
-//         }).get(5, TimeUnit.SECONDS);
-//         final HashSet<Client> set = channels.get(channelName);
-//         set.add(connections.get(webSocket));
-//         channels.put(channelName, set);
-//       } else {
-//         final HashSet<Client> set = channels.get(channelName);
-//         set.add(connections.get(webSocket));
-//         channels.put(channelName, set);
-//       }
-//     }   
-//   } catch(InterruptedException | ExecutionException | TimeoutException | NullPointerException e) {
-//     System.out.printf("[\033[31mSEVERE\033[0m] could not join channel; %s\t%s\n", e.getCause(), e.getMessage());
-//   }
-//         }
-// // reactor.submit(() -> client.request(HttpRequest.builder(POST, APIURLs.SUBSCRIPTIONS.url).withHeader(HttpHeaders.AUTHORIZATION, "Bearer " + arrayListUnencoded[6]).build()).whenResult(() -> {
-// //
-// // }));
-//         case "PASS" -> {
-//   try {
-//     System.out.println($[0] + " " + $[1]);
-//     final String tkn = $[1].split(":", 1)[1];
-//     final TokenIntrospection tokenIntrospection = httpClient.sendAsync(java.net.http.HttpRequest.newBuilder(URI.create(APIURLs.INTROSPECT_TOKEN.url)).POST(BodyPublishers.noBody()).header("Authorization", "Bearer " + tkn).build(), BodyHandlers.ofString())
-//       .thenApply(response -> JSON.parseObject(response.body(), TokenIntrospection.class)).get(5, TimeUnit.SECONDS);
-//     if(tokenIntrospection.data().active()) {
-//       final String namee = webSocket.messageReadChannel().map(message -> {
-//
-//         System.out.println(message.getText());
-//         final String[] nickName = message.getText().split(" ");
-//         if(nickName[0].equals("NICK")) {
-//           return nickName[1];
-//         } else {
-//           return "";
-//         }
-//       }).get()
-//         .whenException(e -> System.err.printf("[\033[31mSEVERE\033[0m] could not process the nickname; %s\t %s\n",e.getMessage(), e.toString()))
-//         .getResult();
-//       if(!namee.isBlank()) {
-//         connections.put(webSocket, new Client(namee, null, arrayListUnencoded[5], null, webSocket));
-//       }
-//
-//       //var res = httpClient.sendAsync(java.net.http.HttpRequest.newBuilder(URI.create(APIURLs.)).build(), BodyHandlers.ofString()).get(5, TimeUnit.SECONDS);
-//     }
-//   } catch (TimeoutException | ExecutionException | InterruptedException | NullPointerException e) {
-//     System.out.printf("[\033[31mSEVERE\033[0m] could not pass token; %s\t%s\n", e.getCause(), e.getMessage());
-//   }
-//         }
-// // case "NICK" -> {
-// //   
-// // }
-// default -> {}
-//       }
-//       webSocket.close();
-//     } else {
-//       webSocket.closeEx(new ProtocolException("invalid credentials"));
-//     }
-//   }
-//   );
-//
-//   //connections.put(webSocket);
-//   // webSocket.messageReadChannel()
-//   //   .streamTo(ChannelConsumers.ofConsumer(msg -> {
-//   //     for (final IWebSocket con : connections) {
-//   //       con.writeMessage(msg);
-//   //     }
-//   //   }));
-}
-)/*{
-// .loop(($, e) -> {
-//   if (e == null) {
-//     return Promise.complete()
-//       .then(() -> webSocket.readMessage())
-//       .then(message -> {
-//         if (message instanceof Text text) {
-//           String msg = text.getText();
-//           System.out.println("Received: " + msg);
-//
-//           for (WebSocket conn : connections) {
-//             if (conn != webSocket) {
-//               conn.writeMessage(Message.text(msg));
-//             }
-//           }
-//         }
-//         return Promise.complete();
-//       })
-//   } else {
-//     // Connection closed or error occurred
-//     connections.remove(webSocket);
-//     System.out.println("Connection closed. Total: " + connections.size());
-//     return Promise.complete();
-//   }
-// });
-//
-// while (true) {
-//   var promise = webSocket.readMessage().then(msg -> {
-//     for (var con : connections) {
-//       con.writeMessage(msg);
-//     };
-//     return Promise.complete();
-//   });
-//   promise.getResult();
-// }
-/*
+  }
 
-try{
-// websocket.readFrame().then($ -> {
-//   System.out.printf("content: %s\ntype: %s\n", $.getPayload().asString(StandardCharsets.UTF_8), $.getType().toString());
-//
-//   return null;
-// });
-websocket.readMessage().then(msg -> {
-if (msg != null) {
-var message = msg.getText();
-System.out.printf("content: %s\ntype: %s\n", message, msg.getType().toString());
-} else {
-System.out.println("lmao");
-}
-return websocket.writeMessage(Message.text("Lmao."));
-}).whenResult($ -> {
-// switch (msg.getText()) {
-//   case "اه":
-//     break;
-//   default:
-//     websocket.writeMessage(Message.text("")).whenResult(a -> {}).whenException();
-// }
-}).whenComplete(() -> {
-System.out.println("sent");
-}).whenException(e -> {
-switch (e) {
-case WebSocketException webSocketException -> {
-System.out.printf("[\033[31mSEVERE\033[0m] Signal received; %s", e.getCause(), e.getMessage());
-}
-
-default -> {
-System.out.printf("[\033[31mSEVERE\033[0m] Unknown signal received; %s\t%s\n", e.getCause(), e.getMessage());
-Arrays.stream(e.getStackTrace()).forEach(stackTrace -> System.out.printf("%s\n", stackTrace.toString()));
-}
-}
-});
-} catch(Exception e ){
-System.out.printf("like, kys; %s; %s\n", e.getCause(), e.getMessage());
-}
-})*/
-.with("/asd", request -> {
-    try {
-        String myIP = HttpClient.newHttpClient().send(
-            java.net.http.HttpRequest.newBuilder().uri(URI.create("https://api.ipify.org")).build(),
-            BodyHandlers.ofString()).body();
-        
-        String host = URI.create(APIURLs.CHANNELS.url).getHost();
-        String resolvedIP = java.net.InetAddress.getByName(host).getHostAddress();
-        
-        String url = APIURLs.CHANNELS.url + "?slug=1dzo";
-        java.net.http.HttpRequest requestt = java.net.http.HttpRequest.newBuilder()
-            .uri(URI.create(url))
-            .header("Authorization", "Bearer " + arrayListUnencoded[6])
-            .header("Content-Type", "application/x-www-form-urlencoded")
-            .GET()
-            .build();
-            
-        java.net.http.HttpResponse<String> response = java.net.http.HttpClient.newHttpClient().send(requestt, BodyHandlers.ofString());
-        
-        System.out.printf("[\033[35mCOMPARISON\033[0m] Environment: %s%n", 
-            System.getenv("ENV") != null ? System.getenv("ENV") : "unknown");
-        System.out.printf("[\033[35mCOMPARISON\033[0m] My IP: %s%n", myIP);
-        System.out.printf("[\033[35mCOMPARISON\033[0m] Resolved %s -> %s%n", host, resolvedIP);
-        System.out.printf("[\033[35mCOMPARISON\033[0m] Kick Response: %d - %s%n", 
-            response.statusCode(), response.body());
-        var channel = kickClient.getChannelByLogin("1dzo").join();
-        System.out.printf("[\033[35mCOMPARISON\033[0m] Kick Response: %s\n", channel);
-        return SecureResponses.secureDynamic(HttpResponse.ok200()).toPromise();
-    } catch (Exception e) {
-        System.out.printf("[\033[31mCOMPARISON FAILED\033[0m] %s%n", e.getMessage());
-        return SecureResponses.secureDynamic(HttpResponse.ofCode(501)).toPromise();
+  @Provides
+  SSLContext sslContext() throws Exception {
+    // Load your keystore (PKCS12 format recommended)
+    KeyStore keyStore = KeyStore.getInstance("PKCS12");
+    try (InputStream is = Files.newInputStream(Paths.get("keystore.p12"))) {
+      keyStore.load(is, "password".toCharArray());
     }
-    })
-.build();
 
-}
+    // Initialize with TLS 1.3
+    KeyManagerFactory kmf = KeyManagerFactory.getInstance("SunX509");
+    kmf.init(keyStore, "password".toCharArray());
 
-        // private Consumer<IWebSocket> messageHandler(IWebSocket ws){
-        //   return webSocket -> {
-        //     connections.add(webSocket);
-        //     webSocket.messageReadChannel()
-        //       .streamTo(ChannelConsumers.ofConsumer(msg -> {
-        //         for (final IWebSocket con : connections) {
-        //           con.writeMessage(msg);
-        //         }
-        //       }));
-        //   };
-        // }
-	@Provides
-	SSLContext sslContext() throws Exception {
-		// Load your keystore (PKCS12 format recommended)
-		KeyStore keyStore = KeyStore.getInstance("PKCS12");
-		try (InputStream is = Files.newInputStream(Paths.get("keystore.p12"))) {
-			keyStore.load(is, "password".toCharArray());
-		}
+    SSLContext sslContext = SSLContext.getInstance("TLSv1.3"); // Explicit TLS 1.3
+    sslContext.init(kmf.getKeyManagers(), null, null);
+    return sslContext;
+  }
 
-		// Initialize with TLS 1.3
-		KeyManagerFactory kmf = KeyManagerFactory.getInstance("SunX509");
-		kmf.init(keyStore, "password".toCharArray());
+  @Provides
+  @Eager
+  HttpServer server(NioReactor reactor, AsyncServlet servlet, Executor executor) throws NoSuchAlgorithmException {
+    return HttpServer.builder(reactor, servlet)
+    .withListenPort(80)
+    .build();
+  }
 
-		SSLContext sslContext = SSLContext.getInstance("TLSv1.3"); // Explicit TLS 1.3
-		sslContext.init(kmf.getKeyManagers(), null, null);
-		return sslContext;
-	}
+  // @Override
+  // protected Module getModule() {
+  // 	return ServiceGraphModule.builder().build();
+  // }
 
-	@Provides
-	@Eager
-	HttpServer server(NioReactor reactor, AsyncServlet servlet, Executor executor) throws NoSuchAlgorithmException {
-		return HttpServer.builder(reactor, servlet)
-                        .withListenPort(80)
-			.build();
-	}
+  @Override
+  protected void run() throws Exception {
+    logger0.info("HTTP Server is now available at http://localhost: 80");
+    awaitShutdown();
+  }
 
-	// @Override
-	// protected Module getModule() {
-	// 	return ServiceGraphModule.builder().build();
-	// }
+  public static void main(String[] args) throws Exception {
 
-	@Override
-	protected void run() throws Exception {
-		logger0.info("HTTP Server is now available at http://localhost: 80");
-		awaitShutdown();
-	}
-
-	public static void main(String[] args) throws Exception {
-		Launcher launcher = new App();
-		launcher.launch(args);
-	}
+    Launcher launcher = new App();
+    launcher.launch(args);
+  }
 }
